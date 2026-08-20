@@ -1,0 +1,9 @@
+{
+  "name": "carpark-sg",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Live carpark availability across Singapore",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}
