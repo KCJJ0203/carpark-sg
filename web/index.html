@@ -72,6 +72,14 @@
   }
   .choice strong { font-weight: 600; }
   .choice .meta { font-size: 13px; }
+  .row { position: relative; }
+  .star {
+    position: absolute; top: 8px; right: 8px; width: auto; padding: 4px 8px;
+    border: none; background: none; font-size: 20px; line-height: 1;
+    color: var(--muted); cursor: pointer;
+  }
+  .star.on { color: #e0a33a; }
+  .row h2 { padding-right: 36px; }
 </style>
 </head>
 <body>
@@ -93,12 +101,13 @@
     <strong>HDB carparks only.</strong> Shopping-mall and URA carparks are not included yet, so an
     empty list here does not mean there is no parking nearby.
   </div>
+  <div id="saved"></div>
   <div class="where" id="where"></div>
   <div id="list"></div>
 </main>
 <script>
 const $ = (s) => document.querySelector(s);
-const state = { carparks: null, windows: [], holidays: [], live: null, fetchedAt: null };
+const state = { carparks: null, windows: [], holidays: [], live: null, fetchedAt: null, lastPos: null };
 
 // Straight-line distance. Labelled as such in the UI - real walking distance
 // needs routing we deliberately do not do.
@@ -174,46 +183,101 @@ function tidy(address) {
     .toLowerCase().replace(/\b[a-z]/g, (m) => m.toUpperCase());
 }
 
-function render(pos) {
+// Saved carparks live in this browser only. There is no account and no server,
+// so there is nothing to lose or leak - and nothing to sync either, which is
+// stated in the UI rather than left for someone to discover on a second device.
+const SAVED_KEY = "carpark-sg:saved";
+
+function loadSaved() {
+  try {
+    return JSON.parse(localStorage.getItem(SAVED_KEY)) || [];
+  } catch (e) {
+    // Private browsing and blocked site data both throw here. Favourites are a
+    // convenience; losing them must never stop the app working.
+    return [];
+  }
+}
+
+function toggleSaved(id) {
+  const saved = loadSaved();
+  const next = saved.includes(id) ? saved.filter((x) => x !== id) : saved.concat(id);
+  try { localStorage.setItem(SAVED_KEY, JSON.stringify(next)); } catch (e) {}
+  return next;
+}
+
+function card(c, distance) {
   const now = new Date();
+  const live = state.live?.get(c.i);
+  const free = isFreeNow(state.windows[c.f], now);
+  const ageMin = live?.at ? Math.round((now - live.at) / 60000) : null;
+  const stale = ageMin !== null && ageMin > 15;
+  const isSaved = loadSaved().includes(c.i);
+
+  let lots = '<div class="meta">No live data for this carpark</div>';
+  const suspect = live && looksUnreported(live.total, live.available);
+  if (live && live.total !== null) {
+    const pct = Math.max(0, Math.min(1, live.available / live.total));
+    const colour = pct > 0.2 ? "var(--ok)" : pct > 0.05 ? "var(--warn)" : "var(--bad)";
+    lots =
+      '<div class="lots"><span class="n" style="color:' + colour + '">' + live.available +
+      '</span><span class="of">of ' + live.total + ' lots free</span></div>' +
+      '<div class="bar"><i style="width:' + (pct * 100).toFixed(0) + '%;background:' + colour + '"></i></div>';
+  } else if (live) {
+    lots = '<div class="meta">Not reporting lot counts right now</div>';
+  }
+
+  const tags = [
+    free ? '<span class="tag free">Free right now</span>' : "",
+    suspect ? '<span class="tag stale">Reports every lot free - sensors may be down</span>' : "",
+    stale ? '<span class="tag stale">Updated ' + ageMin + ' min ago</span>' : "",
+    c.g ? '<span class="tag">' + c.g + "m gantry</span>" : "",
+  ].filter(Boolean).join("");
+
+  const where = distance === null ? "" :
+    '<div class="meta"><span>' +
+    (distance < 1000 ? Math.round(distance) + " m" : (distance / 1000).toFixed(1) + " km") +
+    " away (straight line)</span></div>";
+
+  return '<div class="row">' +
+    '<button class="star' + (isSaved ? " on" : "") + '" data-id="' + c.i + '" ' +
+      'aria-label="' + (isSaved ? "Remove from saved" : "Save this carpark") + '" ' +
+      'title="' + (isSaved ? "Remove from saved" : "Save this carpark") + '">' +
+      (isSaved ? "★" : "☆") + "</button>" +
+    "<h2>" + tidy(c.a) + "</h2>" + where + lots +
+    (tags ? '<div class="tags">' + tags + "</div>" : "") + "</div>";
+}
+
+function wireStars(root) {
+  root.querySelectorAll(".star").forEach((b) => {
+    b.addEventListener("click", () => {
+      toggleSaved(b.dataset.id);
+      if (state.lastPos) render(state.lastPos);
+    });
+  });
+}
+
+function render(pos) {
+  state.lastPos = pos;
+  const byId = new Map(state.carparks.map((c) => [c.i, c]));
+  const saved = loadSaved().map((id) => byId.get(id)).filter(Boolean);
+
+  // Saved carparks get a distance too. A favourite 8km away is still worth
+  // knowing about, but only if the page says so - otherwise the card looks like
+  // it is nearby.
+  $("#saved").innerHTML = saved.length
+    ? '<div class="where">Saved</div>' +
+      saved.map((c) => card(c, haversine(pos.lat, pos.lng, c.y, c.x))).join("")
+    : "";
+
   const near = state.carparks
     .map((c) => ({ c, d: haversine(pos.lat, pos.lng, c.y, c.x) }))
     .sort((a, b) => a.d - b.d)
     .slice(0, 15);
 
-  const html = near.map(({ c, d }) => {
-    const live = state.live?.get(c.i);
-    const free = isFreeNow(state.windows[c.f], now);
-    const ageMin = live?.at ? Math.round((now - live.at) / 60000) : null;
-    const stale = ageMin !== null && ageMin > 15;
+  $("#list").innerHTML = near.map(({ c, d }) => card(c, d)).join("");
+  wireStars($("#list"));
+  wireStars($("#saved"));
 
-    let lots = '<div class="meta">No live data for this carpark</div>';
-    const suspect = live && looksUnreported(live.total, live.available);
-    if (live && live.total !== null) {
-      const pct = Math.max(0, Math.min(1, live.available / live.total));
-      const colour = pct > 0.2 ? "var(--ok)" : pct > 0.05 ? "var(--warn)" : "var(--bad)";
-      lots =
-        '<div class="lots"><span class="n" style="color:' + colour + '">' + live.available +
-        '</span><span class="of">of ' + live.total + ' lots free</span></div>' +
-        '<div class="bar"><i style="width:' + (pct * 100).toFixed(0) + '%;background:' + colour + '"></i></div>';
-    } else if (live) {
-      lots = '<div class="meta">Not reporting lot counts right now</div>';
-    }
-
-    const tags = [
-      free ? '<span class="tag free">Free right now</span>' : "",
-      suspect ? '<span class="tag stale">Reports every lot free - sensors may be down</span>' : "",
-      stale ? '<span class="tag stale">Updated ' + ageMin + ' min ago</span>' : "",
-      c.g ? '<span class="tag">' + c.g + 'm gantry</span>' : "",
-    ].filter(Boolean).join("");
-
-    return '<div class="row"><h2>' + tidy(c.a) + "</h2>" +
-      '<div class="meta"><span>' + (d < 1000 ? Math.round(d) + " m" : (d / 1000).toFixed(1) + " km") +
-      " away (straight line)</span></div>" + lots +
-      (tags ? '<div class="tags">' + tags + "</div>" : "") + "</div>";
-  }).join("");
-
-  $("#list").innerHTML = html;
   $("#sub").textContent = "Live as of " + state.fetchedAt.toLocaleTimeString("en-SG",
     { hour: "2-digit", minute: "2-digit" }) + " · " + state.carparks.length.toLocaleString() + " HDB carparks";
 }
