@@ -1,0 +1,62 @@
+# Rebuilds what the site downloads, once a day.
+#
+# Separate from collection because the two have different rhythms: availability
+# has to be sampled every 30 minutes to be useful, while the carpark list and
+# the usage patterns move slowly. Rebuilding those every half hour would be 48
+# times the work for the same answer.
+
+name: Publish site data
+
+on:
+  schedule:
+    # 03:15 SGT, a quiet hour, after a full day of history has landed.
+    - cron: "15 19 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # subtree split needs real history, not a shallow clone.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Tests must pass before anything ships
+        run: npm test
+
+      - name: Refresh the carpark list and holidays
+        run: |
+          node scripts/collect.js --carparks
+          node scripts/build-web.js
+
+      - name: Rebuild usage patterns from collected history
+        run: node scripts/build-patterns.js
+
+      - name: Commit the rebuilt data
+        run: |
+          git config user.name "carpark-collector"
+          git config user.email "actions@github.com"
+          git add data web
+          git diff --staged --quiet || git commit -m "data: rebuild carpark list and usage patterns"
+          git pull --rebase --autostash || true
+          git push
+
+      - name: Deploy the site
+        # gh-pages is generated, so a force push is the honest operation: it
+        # should always mirror web/ on main rather than accumulate its own
+        # history that nobody reads.
+        run: |
+          git subtree split --prefix web -b gh-pages-build
+          git push -f origin gh-pages-build:gh-pages
