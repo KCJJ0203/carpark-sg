@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1419">
+<title>Carpark SG — live HDB carpark availability</title>
+<link rel="manifest" href="manifest.json">
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #14181f; --muted: #5c6672; --line: #e3e7ec;
+    --ok: #17794a; --warn: #9a6200; --bad: #b3261e; --accent: #14181f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1419; --card: #171d24; --ink: #e8edf2; --muted: #94a1ae; --line: #262f39;
+      --ok: #4ac48a; --warn: #e0a33a; --bad: #ef6b62; --accent: #e8edf2;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+  header { padding: 20px 16px 12px; }
+  h1 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  main { padding: 0 16px 40px; max-width: 640px; margin: 0 auto; }
+  button {
+    font: inherit; padding: 12px 16px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink); cursor: pointer; width: 100%;
+  }
+  button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+  .row {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px; margin-bottom: 10px;
+  }
+  .row h2 { margin: 0 0 2px; font-size: 15px; font-weight: 600; line-height: 1.35; }
+  .meta { color: var(--muted); font-size: 13px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .lots { display: flex; align-items: baseline; gap: 8px; margin-top: 10px; }
+  .n { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+  .of { color: var(--muted); font-size: 13px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 8px; }
+  .bar > i { display: block; height: 100%; border-radius: 3px; }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .tag {
+    font-size: 12px; padding: 3px 8px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted);
+  }
+  .tag.free { color: var(--ok); border-color: currentColor; font-weight: 600; }
+  .tag.stale { color: var(--warn); border-color: currentColor; }
+  .note {
+    font-size: 13px; color: var(--muted); border: 1px dashed var(--line);
+    border-radius: 10px; padding: 12px; margin: 14px 0;
+  }
+  .err { color: var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Carpark SG</h1>
+  <div class="sub" id="sub">HDB carparks, live availability</div>
+</header>
+<main>
+  <div id="action"><button class="primary" id="locate">Find carparks near me</button></div>
+  <div class="note" id="scope">
+    <strong>HDB carparks only.</strong> Shopping-mall and URA carparks are not included yet, so an
+    empty list here does not mean there is no parking nearby.
+  </div>
+  <div id="list"></div>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const state = { carparks: null, windows: [], holidays: [], live: null, fetchedAt: null };
+
+// Straight-line distance. Labelled as such in the UI - real walking distance
+// needs routing we deliberately do not do.
+function haversine(aLat, aLng, bLat, bLng) {
+  const R = 6371000, toRad = (d) => d * Math.PI / 180;
+  const dLat = toRad(bLat - aLat), dLng = toRad(bLng - aLng);
+  const s = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+const DAYS = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
+
+// Mirrors src/windows.js. A window we cannot read means NOT free: telling
+// someone parking is free when it is not is the one error that costs them money.
+function isFreeNow(windows, now) {
+  if (!windows || !windows.length) return false;
+  const sg = new Date(now.getTime() + 8 * 3600 * 1000);
+  const day = DAYS[sg.getUTCDay()];
+  const iso = sg.toISOString().slice(0, 10);
+  const isPH = state.holidays.includes(iso);
+  const mins = sg.getUTCHours() * 60 + sg.getUTCMinutes();
+  return windows.some((w) =>
+    (w.days.includes("ALL") || w.days.includes(day) || (isPH && w.days.includes("PH"))) &&
+    mins >= w.from && mins < w.to
+  );
+}
+
+async function loadStatic() {
+  const [c, h] = await Promise.all([
+    fetch("carparks.min.json").then((r) => r.json()),
+    fetch("holidays.json").then((r) => r.json()).catch(() => []),
+  ]);
+  state.carparks = c.carparks;
+  state.windows = c.windows;
+  state.holidays = h;
+}
+
+// Fetched straight from data.gov.sg: the API sends Access-Control-Allow-Origin: *,
+// so no server of our own sits in the middle.
+async function loadLive() {
+  const r = await fetch("https://api.data.gov.sg/v1/transport/carpark-availability");
+  const j = await r.json();
+  const map = new Map();
+  for (const c of (j.items?.[0]?.carpark_data) || []) {
+    const car = (c.carpark_info || []).find((i) => i.lot_type === "C") || c.carpark_info?.[0];
+    if (!car) continue;
+    const total = parseInt(car.total_lots, 10);
+    map.set("hdb:" + c.carpark_number.trim().toUpperCase(), {
+      // A reported total of 0 means NOT REPORTING, not full. Showing it as full
+      // would send people away from a carpark that has space.
+      total: total > 0 ? total : null,
+      available: total > 0 ? parseInt(car.lots_available, 10) : null,
+      at: c.update_datetime ? new Date(c.update_datetime + "+08:00") : null,
+    });
+  }
+  state.live = map;
+  state.fetchedAt = new Date();
+}
+
+function tidy(address) {
+  return address.replace(/\bBLK\b/g, "Blk").replace(/\s+/g, " ")
+    .toLowerCase().replace(/\b[a-z]/g, (m) => m.toUpperCase());
+}
+
+function render(pos) {
+  const now = new Date();
+  const near = state.carparks
+    .map((c) => ({ c, d: haversine(pos.lat, pos.lng, c.y, c.x) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 15);
+
+  const html = near.map(({ c, d }) => {
+    const live = state.live?.get(c.i);
+    const free = isFreeNow(state.windows[c.f], now);
+    const ageMin = live?.at ? Math.round((now - live.at) / 60000) : null;
+    const stale = ageMin !== null && ageMin > 15;
+
+    let lots = '<div class="meta">No live data for this carpark</div>';
+    if (live && live.total !== null) {
+      const pct = Math.max(0, Math.min(1, live.available / live.total));
+      const colour = pct > 0.2 ? "var(--ok)" : pct > 0.05 ? "var(--warn)" : "var(--bad)";
+      lots =
+        '<div class="lots"><span class="n" style="color:' + colour + '">' + live.available +
+        '</span><span class="of">of ' + live.total + ' lots free</span></div>' +
+        '<div class="bar"><i style="width:' + (pct * 100).toFixed(0) + '%;background:' + colour + '"></i></div>';
+    } else if (live) {
+      lots = '<div class="meta">Not reporting lot counts right now</div>';
+    }
+
+    const tags = [
+      free ? '<span class="tag free">Free right now</span>' : "",
+      stale ? '<span class="tag stale">Updated ' + ageMin + ' min ago</span>' : "",
+      c.g ? '<span class="tag">' + c.g + 'm gantry</span>' : "",
+    ].filter(Boolean).join("");
+
+    return '<div class="row"><h2>' + tidy(c.a) + "</h2>" +
+      '<div class="meta"><span>' + (d < 1000 ? Math.round(d) + " m" : (d / 1000).toFixed(1) + " km") +
+      " away (straight line)</span></div>" + lots +
+      (tags ? '<div class="tags">' + tags + "</div>" : "") + "</div>";
+  }).join("");
+
+  $("#list").innerHTML = html;
+  $("#sub").textContent = "Live as of " + state.fetchedAt.toLocaleTimeString("en-SG",
+    { hour: "2-digit", minute: "2-digit" }) + " · " + state.carparks.length.toLocaleString() + " HDB carparks";
+}
+
+$("#locate").addEventListener("click", async () => {
+  const btn = $("#locate");
+  btn.disabled = true;
+  btn.textContent = "Locating…";
+  try {
+    const pos = await new Promise((res, rej) =>
+      navigator.geolocation.getCurrentPosition(
+        (p) => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        rej, { enableHighAccuracy: true, timeout: 15000 }
+      ));
+    btn.textContent = "Loading carparks…";
+    if (!state.carparks) await loadStatic();
+    await loadLive();
+    render(pos);
+    $("#action").innerHTML = '<button id="again">Refresh</button>';
+    $("#again").addEventListener("click", () => location.reload());
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = "Find carparks near me";
+    $("#list").innerHTML = '<div class="note err">Could not get your location or the live data. ' +
+      "Check location permission and try again.</div>";
+  }
+});
+</script>
+</body>
+</html>
