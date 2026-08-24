@@ -1,0 +1,62 @@
+# Collects carpark availability around the clock.
+#
+# WHY THIS EXISTS: collection first ran from KC's PC on a 30-minute schedule and
+# produced 6-7 samples a day instead of 48, because the machine sleeps. Worse
+# than the volume was the BIAS - 12 of 24 hours had no samples at all, including
+# 17:00-20:00, the evening peak that the "usually full at this hour" feature is
+# entirely about. A pattern built from those samples would describe when KC is
+# at his computer, not when carparks fill up.
+#
+# GitHub's runners are always on, so the sampling is even.
+
+name: Collect carpark availability
+
+on:
+  schedule:
+    # Every 30 minutes. GitHub may delay scheduled runs under load; an occasional
+    # late sample is fine, a systematically missing time of day is not.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  # Never let two runs append to the same file at once.
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Collect one snapshot
+        run: node scripts/collect.js
+
+      - name: Compress finished days
+        # Yesterday's file will not change again, so it compresses to about a
+        # tenth of its size. Raw daily files are ~3MB; left uncompressed the repo
+        # would grow by a gigabyte a year.
+        run: |
+          today=$(TZ=Asia/Singapore date +%F)
+          for f in data/history/*.jsonl; do
+            [ -e "$f" ] || continue
+            case "$f" in *"$today"*) continue ;; esac
+            gzip -f "$f"
+          done
+
+      - name: Commit
+        run: |
+          git config user.name "carpark-collector"
+          git config user.email "actions@github.com"
+          git add data/history
+          git diff --staged --quiet || git commit -m "data: availability snapshot $(TZ=Asia/Singapore date -Iminutes)"
+          # Another run may have pushed while this one worked.
+          git pull --rebase --autostash || true
+          git push
