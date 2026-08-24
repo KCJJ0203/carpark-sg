@@ -86,6 +86,16 @@ function haversine(aLat, aLng, bLat, bLng) {
 
 const DAYS = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
 
+// Mirrors src/quality.js. A large carpark reporting EVERY lot free is almost
+// certainly a carpark whose sensors are offline, not an empty one: in a single
+// snapshot 36 carparks reported 100% free, including one with 2,754 lots.
+// Below 50 lots an empty carpark is entirely believable, so those are left
+// alone - crying wolf there teaches people to ignore the warning.
+function looksUnreported(total, available) {
+  if (!total || available === null || available === undefined) return false;
+  return available === total && total >= 50;
+}
+
 // Mirrors src/windows.js. A window we cannot read means NOT free: telling
 // someone parking is free when it is not is the one error that costs them money.
 function isFreeNow(windows, now) {
@@ -152,6 +162,7 @@ function render(pos) {
     const stale = ageMin !== null && ageMin > 15;
 
     let lots = '<div class="meta">No live data for this carpark</div>';
+    const suspect = live && looksUnreported(live.total, live.available);
     if (live && live.total !== null) {
       const pct = Math.max(0, Math.min(1, live.available / live.total));
       const colour = pct > 0.2 ? "var(--ok)" : pct > 0.05 ? "var(--warn)" : "var(--bad)";
@@ -165,6 +176,7 @@ function render(pos) {
 
     const tags = [
       free ? '<span class="tag free">Free right now</span>' : "",
+      suspect ? '<span class="tag stale">Reports every lot free - sensors may be down</span>' : "",
       stale ? '<span class="tag stale">Updated ' + ageMin + ' min ago</span>' : "",
       c.g ? '<span class="tag">' + c.g + 'm gantry</span>' : "",
     ].filter(Boolean).join("");
