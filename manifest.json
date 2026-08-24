@@ -1,0 +1,9 @@
+{
+  "name": "Carpark SG",
+  "short_name": "Carpark",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0f1419",
+  "theme_color": "#0f1419",
+  "description": "Live HDB carpark availability in Singapore"
+}
