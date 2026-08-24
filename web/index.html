@@ -55,6 +55,23 @@
     border-radius: 10px; padding: 12px; margin: 14px 0;
   }
   .err { color: var(--bad); }
+  .or {
+    text-align: center; color: var(--muted); font-size: 13px; margin: 12px 0 8px;
+  }
+  #searchForm { display: flex; gap: 8px; }
+  #q {
+    flex: 1; min-width: 0; font: inherit; padding: 12px 14px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  }
+  #go { width: auto; flex: 0 0 auto; }
+  .where { font-size: 13px; color: var(--muted); margin: 14px 0 8px; }
+  .where strong { color: var(--ink); }
+  .choice {
+    text-align: left; margin-bottom: 8px; display: flex; flex-direction: column;
+    align-items: flex-start; gap: 2px;
+  }
+  .choice strong { font-weight: 600; }
+  .choice .meta { font-size: 13px; }
 </style>
 </head>
 <body>
@@ -63,11 +80,20 @@
   <div class="sub" id="sub">HDB carparks, live availability</div>
 </header>
 <main>
-  <div id="action"><button class="primary" id="locate">Find carparks near me</button></div>
+  <div id="action">
+    <button class="primary" id="locate">Find carparks near me</button>
+    <div class="or">or search a destination</div>
+    <form id="searchForm" autocomplete="off">
+      <input id="q" type="search" placeholder="Jurong Point, Blk 123 Ang Mo Kio, Changi Airport…"
+             aria-label="Search for a destination">
+      <button type="submit" id="go">Search</button>
+    </form>
+  </div>
   <div class="note" id="scope">
     <strong>HDB carparks only.</strong> Shopping-mall and URA carparks are not included yet, so an
     empty list here does not mean there is no parking nearby.
   </div>
+  <div class="where" id="where"></div>
   <div id="list"></div>
 </main>
 <script>
@@ -192,6 +218,42 @@ function render(pos) {
     { hour: "2-digit", minute: "2-digit" }) + " · " + state.carparks.length.toLocaleString() + " HDB carparks";
 }
 
+async function showFor(pos, label) {
+  if (!state.carparks) await loadStatic();
+  await loadLive();
+  render(pos);
+  $("#where").innerHTML = "Nearest carparks to <strong>" + label + "</strong>";
+}
+
+function fail(message) {
+  $("#where").innerHTML = "";
+  $("#list").innerHTML = '<div class="note err">' + message + "</div>";
+}
+
+async function pick(result) {
+  await showFor(
+    { lat: parseFloat(result.LATITUDE), lng: parseFloat(result.LONGITUDE) },
+    result.SEARCHVAL
+  );
+}
+
+// More than one place matches, and the ranking cannot be trusted - so ask
+// rather than guess. Showing the road name is what distinguishes "Jurong Point"
+// the mall from a clinic that happens to share two words with it.
+function offerChoices(results) {
+  $("#where").innerHTML = "Which one did you mean?";
+  $("#list").innerHTML = results.map((r, i) =>
+    '<button class="choice" data-i="' + i + '">' +
+      "<strong>" + r.SEARCHVAL + "</strong>" +
+      '<span class="meta">' + [r.ROAD_NAME, r.POSTAL !== "NIL" ? "S" + r.POSTAL : ""]
+        .filter((x) => x && x !== "NIL").join(" · ") + "</span>" +
+    "</button>"
+  ).join("");
+  $("#list").querySelectorAll(".choice").forEach((b) => {
+    b.addEventListener("click", () => pick(results[+b.dataset.i]));
+  });
+}
+
 $("#locate").addEventListener("click", async () => {
   const btn = $("#locate");
   btn.disabled = true;
@@ -203,18 +265,64 @@ $("#locate").addEventListener("click", async () => {
         rej, { enableHighAccuracy: true, timeout: 15000 }
       ));
     btn.textContent = "Loading carparks…";
-    if (!state.carparks) await loadStatic();
-    await loadLive();
-    render(pos);
-    $("#action").innerHTML = '<button id="again">Refresh</button>';
-    $("#again").addEventListener("click", () => location.reload());
+    await showFor(pos, "your location");
   } catch (e) {
+    fail("Could not get your location or the live data. Check location permission, " +
+      "or search for a destination instead.");
+  } finally {
     btn.disabled = false;
     btn.textContent = "Find carparks near me";
-    $("#list").innerHTML = '<div class="note err">Could not get your location or the live data. ' +
-      "Check location permission and try again.</div>";
   }
 });
+
+// Destination search, via OneMap - the government's own geocoder, CORS-open and
+// no key required. Geolocation only helps once you have arrived; planning a
+// trip means asking about somewhere you are not.
+$("#searchForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const q = $("#q").value.trim();
+  if (!q) return;
+  const go = $("#go");
+  go.disabled = true;
+  go.textContent = "…";
+  try {
+    const url = "https://www.onemap.gov.sg/api/common/elastic/search?searchVal=" +
+      encodeURIComponent(q) + "&returnGeom=Y&getAddrDetails=Y&pageNum=1";
+    const j = await fetch(url).then((r) => r.json());
+    const results = j.results || [];
+    if (!results.length) {
+      fail("Nothing found for “" + q + "”. Try a block number, building name or postal code.");
+      return;
+    }
+
+    // OneMap's own ranking is not reliable enough to pick from blindly:
+    // searching "Jurong Point" returns a CLINIC IN TAMAN JURONG first, several
+    // kilometres from the mall, with the mall itself third. Silently taking the
+    // top hit would show carparks near somewhere the user never asked about,
+    // and the list would look perfectly plausible.
+    const exact = results.find((r) => r.SEARCHVAL.trim().toUpperCase() === q.toUpperCase());
+    if (exact) {
+      await pick(exact);
+    } else if (results.length === 1) {
+      await pick(results[0]);
+    } else {
+      offerChoices(results.slice(0, 6));
+    }
+  } catch (err) {
+    fail("Search is unavailable right now. Try again in a moment.");
+  } finally {
+    go.disabled = false;
+    go.textContent = "Search";
+  }
+});
+
+// Offline support. The manifest already claims this is an installable app, so
+// it should survive a lift-lobby dead spot: the shell and the carpark list are
+// cached, while live availability is always fetched fresh and simply absent
+// when there is no signal. A stale lot count would be worse than none.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
 </script>
 </body>
 </html>
