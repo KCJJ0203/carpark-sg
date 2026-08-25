@@ -56,6 +56,10 @@ function toCarpark(raw) {
     gantryHeight: gantry && gantry > 0 ? gantry : null,
     freeParking: parseWindow(raw.free_parking),
     shortTermParking: parseWindow(raw.short_term_parking),
+    // The Night Parking Scheme is what lets a non-season driver stay between
+    // 10.30pm and 7am, and it is also what caps that night at $5. Without it
+    // an overnight stay is not a cheap stay, it is not allowed at all.
+    nightParking: /^Y/i.test(String(raw.night_parking || "")),
   };
 }
 

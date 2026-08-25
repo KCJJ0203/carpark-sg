@@ -46,6 +46,17 @@ test("parses the parking windows", () => {
 
 // A carpark we cannot place on a map is useless and must not be silently
 // given a default position.
+// Night parking is a yes/no in the data and a scheme in the world: it decides
+// both whether an overnight stay is permitted and whether it is capped at $5.
+test("reads the night parking scheme flag", () => {
+  assert.strictEqual(toCarpark(Object.assign({}, RAW, { night_parking: "YES" })).nightParking, true);
+  assert.strictEqual(toCarpark(Object.assign({}, RAW, { night_parking: "NO" })).nightParking, false);
+});
+
+test("a missing night parking flag is treated as no scheme", () => {
+  assert.strictEqual(toCarpark(RAW).nightParking, false);
+});
+
 test("returns null when coordinates cannot be converted", () => {
   assert.strictEqual(toCarpark(Object.assign({}, RAW, { x_coord: "", y_coord: "" })), null);
 });
