@@ -4,122 +4,271 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f1419">
-<title>Carpark SG — live HDB carpark availability</title>
+<title>Carpark SG — live HDB carpark availability and parking fees</title>
 <link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="lib/leaflet.css">
 <style>
   :root {
     --bg: #f6f7f9; --card: #fff; --ink: #14181f; --muted: #5c6672; --line: #e3e7ec;
     --ok: #17794a; --warn: #9a6200; --bad: #b3261e; --accent: #14181f;
+    --scrim: rgb(0 0 0 / 0.14);
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #0f1419; --card: #171d24; --ink: #e8edf2; --muted: #94a1ae; --line: #262f39;
       --ok: #4ac48a; --warn: #e0a33a; --bad: #ef6b62; --accent: #e8edf2;
+      --scrim: rgb(0 0 0 / 0.45);
     }
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    margin: 0; background: var(--bg); color: var(--ink);
+    margin: 0; background: var(--bg); color: var(--ink); overflow: hidden;
     font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+    -webkit-text-size-adjust: 100%;
   }
-  header { padding: 20px 16px 12px; }
-  h1 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
-  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
-  main { padding: 0 16px 40px; max-width: 640px; margin: 0 auto; }
-  button {
-    font: inherit; padding: 12px 16px; border-radius: 10px; border: 1px solid var(--line);
-    background: var(--card); color: var(--ink); cursor: pointer; width: 100%;
+
+  /* ---- shell -------------------------------------------------------- */
+  #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  #map { flex: 1 1 auto; min-height: 0; background: var(--line); z-index: 0; }
+  .leaflet-container { background: var(--line); font: inherit; }
+
+  /* Layout A: the map fills the screen and the sheet floats over it.
+     Layout B: the map takes the top of the screen and the sheet sits under it.
+     Everything else about the two is identical, which is why this is one data
+     attribute and not two code paths. */
+  #app[data-layout="a"] #map { position: absolute; inset: 0; }
+  #app[data-layout="a"] #sheet {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    height: var(--sheet-h, 46%); box-shadow: 0 -6px 24px var(--scrim);
+    border-radius: 16px 16px 0 0;
   }
-  button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
-  .row {
-    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-    padding: 14px; margin-bottom: 10px;
+  #app[data-layout="b"] #map { flex: 0 0 42%; }
+  #app[data-layout="b"] #sheet { flex: 1 1 auto; min-height: 0; border-top: 1px solid var(--line); }
+  #app[data-layout="b"] #grip { display: none; }
+
+  #sheet {
+    background: var(--card); z-index: 500; display: flex; flex-direction: column;
+    padding-bottom: env(safe-area-inset-bottom);
   }
-  .row h2 { margin: 0 0 2px; font-size: 15px; font-weight: 600; line-height: 1.35; }
-  .meta { color: var(--muted); font-size: 13px; display: flex; gap: 10px; flex-wrap: wrap; }
-  .lots { display: flex; align-items: baseline; gap: 8px; margin-top: 10px; }
-  .n { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
-  .of { color: var(--muted); font-size: 13px; }
-  .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 8px; }
-  .bar > i { display: block; height: 100%; border-radius: 3px; }
-  .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
-  .tag {
-    font-size: 12px; padding: 3px 8px; border-radius: 999px;
-    border: 1px solid var(--line); color: var(--muted);
-  }
-  .tag.free { color: var(--ok); border-color: currentColor; font-weight: 600; }
-  .tag.stale { color: var(--warn); border-color: currentColor; }
-  .note {
-    font-size: 13px; color: var(--muted); border: 1px dashed var(--line);
-    border-radius: 10px; padding: 12px; margin: 14px 0;
-  }
-  .err { color: var(--bad); }
-  .or {
-    text-align: center; color: var(--muted); font-size: 13px; margin: 12px 0 8px;
-  }
-  #searchForm { display: flex; gap: 8px; }
+  #grip { flex: 0 0 auto; padding: 9px 0 5px; cursor: grab; touch-action: none; }
+  #grip:active { cursor: grabbing; }
+  #grip i { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--line); margin: 0 auto; }
+  #sheetHead { flex: 0 0 auto; padding: 6px 14px 10px; display: flex; flex-direction: column; gap: 8px; }
+  #sheetBody { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 14px 24px; -webkit-overflow-scrolling: touch; }
+
+  /* ---- controls ----------------------------------------------------- */
+  button { font: inherit; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink); cursor: pointer; padding: 10px 14px; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--ok); outline-offset: 2px; }
+
+  .bar-row { display: flex; gap: 7px; align-items: center; }
   #q {
-    flex: 1; min-width: 0; font: inherit; padding: 12px 14px; border-radius: 10px;
+    flex: 1; min-width: 0; font: inherit; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+  }
+  .icon-btn { flex: 0 0 auto; padding: 10px 13px; line-height: 1; }
+
+  .stay { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
+  select, #startAt {
+    font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 999px;
     border: 1px solid var(--line); background: var(--card); color: var(--ink);
   }
-  #go { width: auto; flex: 0 0 auto; }
-  .where { font-size: 13px; color: var(--muted); margin: 14px 0 8px; }
-  .where strong { color: var(--ink); }
-  .choice {
-    text-align: left; margin-bottom: 8px; display: flex; flex-direction: column;
-    align-items: flex-start; gap: 2px;
+  #startAt { max-width: 100%; }
+
+  .chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: 0 0 auto; font: inherit; font-size: 13px; padding: 5px 11px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--card); color: var(--muted); cursor: pointer;
+    white-space: nowrap;
   }
-  .choice strong { font-weight: 600; }
-  .choice .meta { font-size: 13px; }
-  .row { position: relative; }
+  .chip[aria-pressed="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+
+  /* ---- list --------------------------------------------------------- */
+  .where { font-size: 13px; color: var(--muted); margin: 12px 0 7px; }
+  .where strong { color: var(--ink); }
+  .row {
+    position: relative; width: 100%; text-align: left; display: block;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 13px; margin-bottom: 8px; color: inherit; font: inherit; cursor: pointer;
+  }
+  .row:hover { border-color: var(--muted); }
+  .row-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding-right: 26px; }
+  .row h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.35; }
+  .price { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .price.free { color: var(--ok); }
+  .price.none { color: var(--muted); font-size: 13px; font-weight: 500; }
+  .meta { color: var(--muted); font-size: 13px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 3px; }
+  .dot { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: .5; flex: 0 0 auto; }
+  .lots { display: flex; align-items: baseline; gap: 7px; margin-top: 9px; }
+  .n { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .of { color: var(--muted); font-size: 13px; }
+  .barline { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 7px; }
+  .barline > i { display: block; height: 100%; border-radius: 3px; }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 9px; }
+  .tag { font-size: 12px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .tag.free { color: var(--ok); border-color: currentColor; font-weight: 600; }
+  .tag.stale { color: var(--warn); border-color: currentColor; }
+  .tag.dear { color: var(--bad); border-color: currentColor; }
   .star {
-    position: absolute; top: 8px; right: 8px; width: auto; padding: 4px 8px;
-    border: none; background: none; font-size: 20px; line-height: 1;
-    color: var(--muted); cursor: pointer;
+    position: absolute; top: 7px; right: 7px; padding: 3px 7px; border: none;
+    background: none; font-size: 19px; line-height: 1; color: var(--muted); cursor: pointer;
   }
   .star.on { color: #e0a33a; }
-  .row h2 { padding-right: 36px; }
+  .note { font-size: 13px; color: var(--muted); border: 1px dashed var(--line); border-radius: 10px; padding: 11px; margin: 12px 0; }
+  .note a { color: inherit; }
+  .err { color: var(--bad); }
+  .choice { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+
+  /* ---- detail ------------------------------------------------------- */
+  .back { background: none; border: none; padding: 8px 0; color: var(--muted); font-size: 14px; cursor: pointer; }
+  .detail h2 { margin: 0 0 4px; font-size: 18px; line-height: 1.3; letter-spacing: -0.01em; }
+  .fee-box { border: 1px solid var(--line); border-radius: 12px; padding: 13px; margin-top: 14px; display: flex; flex-direction: column; gap: 11px; }
+  .fee-h { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .fee-total { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .fee-n { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .fee-n.free { color: var(--ok); }
+  .fee-n.none { font-size: 18px; color: var(--muted); }
+  .fee-when { font-size: 12px; color: var(--muted); text-align: right; line-height: 1.4; }
+  .breakdown { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .brow { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); }
+  .brow span:last-child { white-space: nowrap; }
+  .brow.sum { border-top: 1px solid var(--line); padding-top: 6px; color: var(--ink); font-weight: 600; }
+  .maps { display: block; margin-top: 14px; text-decoration: none; }
+  .maps button { width: 100%; }
+
+  /* ---- map pins ----------------------------------------------------- */
+  .pin { display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%); }
+  .pin .lab {
+    display: flex; align-items: baseline; gap: 4px; background: var(--ok); color: #fff;
+    border-radius: 999px; padding: 2px 7px; box-shadow: 0 1px 4px rgb(0 0 0 / .35);
+    font-size: 12px; font-weight: 700; line-height: 1.35; white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .pin .lab em { font-style: normal; font-size: 10px; font-weight: 600; opacity: .85; }
+  .pin .stem { width: 2px; height: 6px; background: var(--ok); }
+  .pin.warn .lab, .pin.warn .stem { background: var(--warn); }
+  .pin.bad .lab, .pin.bad .stem { background: var(--bad); }
+  .pin.unknown .lab, .pin.unknown .stem { background: var(--muted); }
+  .pin.collapsed .lab { padding: 0; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--card); }
+  .pin.collapsed .lab > * { display: none; }
+  .pin.collapsed .stem { display: none; }
+  .pin.chosen .lab { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .leaflet-marker-icon.pin-icon { background: none; border: none; width: 0 !important; height: 0 !important; }
+  .me-dot {
+    width: 14px; height: 14px; border-radius: 50%; background: #1a73e8;
+    border: 2.5px solid #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / .25);
+    transform: translate(-50%, -50%);
+  }
+  .leaflet-control-attribution { font-size: 10px; }
+  .map-btn {
+    position: absolute; z-index: 400; right: 10px; padding: 9px 11px; line-height: 1;
+    box-shadow: 0 1px 5px var(--scrim); font-size: 15px;
+  }
+  #locate { top: 10px; }
+  #layoutBtn { top: 58px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>Carpark SG</h1>
-  <div class="sub" id="sub">HDB carparks, live availability</div>
-</header>
-<main>
-  <div id="action">
-    <button class="primary" id="locate">Find carparks near me</button>
-    <div class="or">or search a destination</div>
-    <form id="searchForm" autocomplete="off">
-      <input id="q" type="search" placeholder="Jurong Point, Blk 123 Ang Mo Kio, Changi Airport…"
-             aria-label="Search for a destination">
-      <button type="submit" id="go">Search</button>
-    </form>
+<div id="app">
+  <div id="map"></div>
+  <button id="locate" class="map-btn" title="Find carparks near me" aria-label="Find carparks near me">◎</button>
+  <button id="layoutBtn" class="map-btn" title="Switch layout" aria-label="Switch layout">▤</button>
+
+  <div id="sheet">
+    <div id="grip" role="separator" aria-label="Drag to resize the list"><i></i></div>
+    <div id="sheetHead">
+      <form class="bar-row" id="searchForm" autocomplete="off">
+        <input id="q" type="search" placeholder="Search a place, block or postal code"
+               aria-label="Search for a destination">
+        <button type="submit" class="icon-btn" id="go" aria-label="Search">→</button>
+      </form>
+      <div class="stay">
+        <span class="chips" role="group" aria-label="When you are parking">
+          <button type="button" class="chip" id="whenNow" aria-pressed="true">Park now</button>
+          <button type="button" class="chip" id="whenLater" aria-pressed="false">Later</button>
+        </span>
+        <input type="datetime-local" id="startAt" hidden aria-label="Arrival time">
+        <select id="dur" aria-label="How long you are staying">
+          <option value="30">30 min</option>
+          <option value="60">1 hour</option>
+          <option value="120" selected>2 hours</option>
+          <option value="180">3 hours</option>
+          <option value="240">4 hours</option>
+          <option value="360">6 hours</option>
+          <option value="480">8 hours</option>
+          <!-- Deliberately not "all day": these are lengths of stay measured
+               from when you arrive, and a stay labelled "all day" starting at
+               8am would run past closing time at the 241 carparks that shut at
+               10.30pm - correctly reported as closed, but a confusing answer to
+               a question the label invited. The daily cap still shows itself
+               here, because 12 hours costs more than $12. -->
+          <option value="720">12 hours</option>
+        </select>
+      </div>
+      <div class="chips" id="typeFilter" role="group" aria-label="Carpark type"></div>
+    </div>
+    <div id="sheetBody">
+      <div id="saved"></div>
+      <div class="where" id="where"></div>
+      <div id="list"></div>
+      <div class="note" id="scope">
+        <strong>HDB carparks only.</strong> Shopping-mall and URA carparks are not included yet, so an
+        empty list here does not mean there is no parking nearby.
+      </div>
+    </div>
   </div>
-  <div class="note" id="scope">
-    <strong>HDB carparks only.</strong> Shopping-mall and URA carparks are not included yet, so an
-    empty list here does not mean there is no parking nearby.
-  </div>
-  <div id="saved"></div>
-  <div class="where" id="where"></div>
-  <div id="list"></div>
-</main>
+</div>
+
+<script src="lib/leaflet.js"></script>
+<script src="rates.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
-const state = { carparks: null, windows: [], holidays: [], patterns: {}, live: null, fetchedAt: null, lastPos: null };
+const R = window.CarparkRates.rates;
+const W = window.CarparkRates.windows;
+
+const state = {
+  carparks: null, windows: [], holidays: new Set(), patterns: {}, live: null, fetchedAt: null,
+  me: null,                              // where the browser says you are, once granted
+  centre: { lat: 1.3521, lng: 103.8198 },
+  selected: null,
+  types: new Set(),                      // empty means every type
+  stay: { start: null, minutes: 120 },   // start null means "now"
+  map: null, markers: new Map(), meMarker: null, lastRows: [],
+  layoutA: true, sheetFraction: 0.46,
+};
 
 // Straight-line distance. Labelled as such in the UI - real walking distance
 // needs routing we deliberately do not do.
 function haversine(aLat, aLng, bLat, bLng) {
-  const R = 6371000, toRad = (d) => d * Math.PI / 180;
+  const E = 6371000, toRad = (d) => d * Math.PI / 180;
   const dLat = toRad(bLat - aLat), dLng = toRad(bLng - aLng);
   const s = Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(s));
+  return 2 * E * Math.asin(Math.sqrt(s));
 }
 
-const DAYS = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
+const isHoliday = (iso) => state.holidays.has(iso);
+const sgDate = (d) => new Date(d.getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+
+// The compact record the page downloads, expanded into what the rate engine
+// expects. Window sets are stored once and referenced by index, so this is
+// where an index becomes actual windows again.
+function forEngine(c) {
+  return {
+    id: c.i,
+    parkingSystem: c.c ? "COUPON PARKING" : "ELECTRONIC PARKING",
+    nightParking: !!c.n,
+    shortTermParking: state.windows[c.s] || [],
+    freeParking: state.windows[c.f] || [],
+  };
+}
+
+const stayStart = () => state.stay.start ? new Date(state.stay.start) : new Date();
+const priceOf = (c) => R.feeFor(forEngine(c), stayStart(), state.stay.minutes, isHoliday);
+const money = (n) => "$" + n.toFixed(2);
 
 // Mirrors src/quality.js. A large carpark reporting EVERY lot free is almost
 // certainly a carpark whose sensors are offline, not an empty one: in a single
@@ -129,21 +278,6 @@ const DAYS = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
 function looksUnreported(total, available) {
   if (!total || available === null || available === undefined) return false;
   return available === total && total >= 50;
-}
-
-// Mirrors src/windows.js. A window we cannot read means NOT free: telling
-// someone parking is free when it is not is the one error that costs them money.
-function isFreeNow(windows, now) {
-  if (!windows || !windows.length) return false;
-  const sg = new Date(now.getTime() + 8 * 3600 * 1000);
-  const day = DAYS[sg.getUTCDay()];
-  const iso = sg.toISOString().slice(0, 10);
-  const isPH = state.holidays.includes(iso);
-  const mins = sg.getUTCHours() * 60 + sg.getUTCMinutes();
-  return windows.some((w) =>
-    (w.days.includes("ALL") || w.days.includes(day) || (isPH && w.days.includes("PH"))) &&
-    mins >= w.from && mins < w.to
-  );
 }
 
 // Mirrors src/patterns.js. Three day types by 24 hours: an HDB carpark is
@@ -160,11 +294,21 @@ function bucketFor(now, isPH) {
 function typicalNow(id, now) {
   const p = state.patterns[id];
   if (!p) return null;
-  const iso = new Date(now.getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-  const ch = p[bucketFor(now, state.holidays.includes(iso))];
+  const ch = p[bucketFor(now, isHoliday(sgDate(now)))];
   if (!ch || ch === "-") return null;
   return Number(ch) / 9;
 }
+
+const TYPE_NAMES = {
+  S: "Surface", M: "Multi-storey", B: "Basement", C: "Covered",
+  E: "Mechanised", X: "Mechanised + surface", U: "Surface + multi-storey", "?": "Carpark",
+};
+const FILTERS = [
+  { key: "M", label: "Multi-storey" },
+  { key: "S", label: "Surface" },
+  { key: "B", label: "Basement" },
+  { key: "C", label: "Covered" },
+];
 
 async function loadStatic() {
   const [c, h, p] = await Promise.all([
@@ -177,7 +321,7 @@ async function loadStatic() {
   ]);
   state.carparks = c.carparks;
   state.windows = c.windows;
-  state.holidays = h;
+  state.holidays = new Set(h);
   state.patterns = (p && p.data) || {};
 }
 
@@ -207,128 +351,463 @@ function tidy(address) {
   return address.replace(/\bBLK\b/g, "Blk").replace(/\s+/g, " ")
     .toLowerCase().replace(/\b[a-z]/g, (m) => m.toUpperCase());
 }
+const fmtDist = (d) => d < 1000 ? Math.round(d) + " m" : (d / 1000).toFixed(1) + " km";
 
 // Saved carparks live in this browser only. There is no account and no server,
 // so there is nothing to lose or leak - and nothing to sync either, which is
 // stated in the UI rather than left for someone to discover on a second device.
 const SAVED_KEY = "carpark-sg:saved";
+const LAYOUT_KEY = "carpark-sg:layout";
 
 function loadSaved() {
-  try {
-    return JSON.parse(localStorage.getItem(SAVED_KEY)) || [];
-  } catch (e) {
-    // Private browsing and blocked site data both throw here. Favourites are a
-    // convenience; losing them must never stop the app working.
-    return [];
-  }
+  // Private browsing and blocked site data both throw here. Favourites are a
+  // convenience; losing them must never stop the app working.
+  try { return JSON.parse(localStorage.getItem(SAVED_KEY)) || []; } catch (e) { return []; }
 }
-
 function toggleSaved(id) {
   const saved = loadSaved();
   const next = saved.includes(id) ? saved.filter((x) => x !== id) : saved.concat(id);
   try { localStorage.setItem(SAVED_KEY, JSON.stringify(next)); } catch (e) {}
-  return next;
 }
 
-function card(c, distance) {
+/* ---- what the map is looking at ------------------------------------ */
+
+// Anchored on the map centre rather than your GPS position, because panning
+// somewhere to ask "what would parking cost over there" is the whole reason to
+// put a map on the front.
+function shortlist(limit) {
+  const c0 = state.centre;
+  return state.carparks
+    .filter((c) => !state.types.size || state.types.has(c.t))
+    .map((c) => ({ c, d: haversine(c0.lat, c0.lng, c.y, c.x) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, limit)
+    .map((x) => ({ c: x.c, d: x.d, fee: priceOf(x.c), live: state.live && state.live.get(x.c.i) }));
+}
+
+function occupancy(live) {
+  if (!live || live.total === null || live.available === null) return null;
+  return Math.max(0, Math.min(1, live.available / live.total));
+}
+
+function feeText(fee) {
+  if (fee.unavailable === "season-only") return { text: "Season only", cls: "none" };
+  if (fee.unavailable) return { text: "Closed then", cls: "none" };
+  if (fee.total === 0) return { text: "Free", cls: "free" };
+  return { text: money(fee.total), cls: "" };
+}
+
+/* ---- map ----------------------------------------------------------- */
+
+function initMap() {
+  const map = L.map("map", { zoomControl: false })
+    .setView([state.centre.lat, state.centre.lng], 16);
+
+  // OneMap is the Singapore Land Authority's own basemap: free, no API key,
+  // CORS-open, and the only tile source that draws HDB blocks properly. Grey
+  // and Night are the same map in two skins, so the app can follow the phone's
+  // theme instead of glowing white in a car at night.
+  const dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  L.tileLayer("https://www.onemap.gov.sg/maps/tiles/" + (dark ? "Night" : "Grey") + "/{z}/{x}/{y}.png", {
+    minZoom: 11, maxZoom: 19,
+    // Singapore only: panning into Malaysia would just load blank tiles.
+    bounds: L.latLngBounds([1.144, 103.535], [1.494, 104.502]),
+    attribution: '<a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener">OneMap</a> &copy; ' +
+      '<a href="https://www.sla.gov.sg/" target="_blank" rel="noopener">Singapore Land Authority</a>',
+  }).addTo(map);
+
+  map.on("moveend", () => {
+    const c = map.getCenter();
+    state.centre = { lat: c.lat, lng: c.lng };
+    if (!state.selected) render();
+  });
+  map.on("zoomend", relayoutPins);
+  state.map = map;
+}
+
+function pinClass(row) {
+  if (row.fee.unavailable) return "unknown";
+  const occ = occupancy(row.live);
+  if (occ === null) return "unknown";
+  return occ > 0.2 ? "" : occ > 0.05 ? "warn" : "bad";
+}
+
+function pinHtml(row) {
+  const f = feeText(row.fee);
+  // A pin has room for a price, not a sentence. "Season only" and "Closed then"
+  // are the list's wording; on the map they would be wider than the carpark.
+  const label = row.fee.unavailable === "season-only" ? "Season"
+    : row.fee.unavailable ? "Shut" : f.text;
+  const lots = row.live && row.live.available !== null ? row.live.available : row.live ? "?" : "–";
+  return '<div class="pin ' + pinClass(row) + (row.c.i === state.selected ? " chosen" : "") + '">' +
+    '<div class="lab"><span>' + label + "</span><em>" + lots + "</em></div>" +
+    '<div class="stem"></div></div>';
+}
+
+function drawPins(rows) {
+  const wanted = new Set(rows.map((r) => r.c.i));
+  for (const [id, m] of state.markers) {
+    if (!wanted.has(id)) { state.map.removeLayer(m); state.markers.delete(id); }
+  }
+  for (const row of rows) {
+    const icon = L.divIcon({ className: "pin-icon", html: pinHtml(row), iconSize: [0, 0] });
+    const existing = state.markers.get(row.c.i);
+    if (existing) { existing.setIcon(icon); continue; }
+    const m = L.marker([row.c.y, row.c.x], { icon, keyboard: false, riseOnHover: true })
+      .addTo(state.map)
+      .on("click", () => openDetail(row.c.i));
+    state.markers.set(row.c.i, m);
+  }
+  relayoutPins();
+}
+
+// A pin carries a price AND a lot count, which makes it wide, and in town
+// carparks sit close enough together that the labels would pile into an
+// unreadable heap. So the nearest pin in any cluster keeps its label and the
+// ones it would cover collapse to dots: no carpark disappears, only the text on
+// it, and what survives is the one you were most likely to be reading.
+function relayoutPins() {
+  if (!state.map) return;
+  const items = [];
+  for (const [id, m] of state.markers) {
+    const el = m.getElement();
+    if (!el || !el.firstChild) continue;
+    el.firstChild.classList.remove("collapsed");
+    items.push({ id, el: el.firstChild, pt: state.map.latLngToContainerPoint(m.getLatLng()) });
+  }
+  // Measure only after everything is expanded, so the widths are real ones.
+  for (const it of items) {
+    const r = it.el.getBoundingClientRect();
+    it.w = r.width || 44;
+    it.h = r.height || 22;
+  }
+  const order = new Map(state.lastRows.map((r, i) => [r.c.i, i]));
+  items.sort((a, b) => (order.has(a.id) ? order.get(a.id) : 1e9) - (order.has(b.id) ? order.get(b.id) : 1e9));
+
+  const placed = [];
+  const hits = (b) => placed.some((p) => b.x1 < p.x2 && b.x2 > p.x1 && b.y1 < p.y2 && b.y2 > p.y1);
+  for (const it of items) {
+    const half = it.w / 2;
+    const box = { x1: it.pt.x - half, x2: it.pt.x + half, y1: it.pt.y - it.h, y2: it.pt.y };
+    if (hits(box)) {
+      it.el.classList.add("collapsed");
+      placed.push({ x1: it.pt.x - 7, x2: it.pt.x + 7, y1: it.pt.y - 14, y2: it.pt.y });
+    } else {
+      placed.push(box);
+    }
+  }
+}
+
+/* ---- the list ------------------------------------------------------ */
+
+function cardHtml(row) {
   const now = new Date();
-  const live = state.live?.get(c.i);
-  const free = isFreeNow(state.windows[c.f], now);
-  const ageMin = live?.at ? Math.round((now - live.at) / 60000) : null;
-  const stale = ageMin !== null && ageMin > 15;
-  const isSaved = loadSaved().includes(c.i);
+  const c = row.c, fee = row.fee, live = row.live;
+  const freeNow = W.isFreeAt(state.windows[c.f], now, isHoliday(sgDate(now)));
+  const f = feeText(fee);
+  const isSaved = loadSaved().indexOf(c.i) !== -1;
+  const occ = occupancy(live);
+
+  let lots = '<span class="meta">No live data for this carpark</span>';
+  if (occ !== null) {
+    const colour = occ > 0.2 ? "var(--ok)" : occ > 0.05 ? "var(--warn)" : "var(--bad)";
+    lots = '<span class="lots"><span class="n" style="color:' + colour + '">' + live.available +
+      '</span><span class="of">of ' + live.total + ' lots free</span></span>' +
+      '<span class="barline"><i style="width:' + (occ * 100).toFixed(0) + '%;background:' + colour + '"></i></span>';
+  } else if (live) {
+    lots = '<span class="meta">Not reporting lot counts right now</span>';
+  }
+
+  const tags = [
+    freeNow ? '<span class="tag free">Free right now</span>' : "",
+    fee.peak ? '<span class="tag dear">Peak-hour rates</span>' : "",
+    fee.central && !fee.peak ? '<span class="tag dear">Central Area</span>' : "",
+    fee.capApplied === "night" ? '<span class="tag">Night cap</span>' : "",
+    fee.capApplied === "day" ? '<span class="tag">Daily cap</span>' : "",
+    live && looksUnreported(live.total, live.available)
+      ? '<span class="tag stale">Reports every lot free - sensors may be down</span>' : "",
+  ].filter(Boolean).join("");
+
+  return '<button class="row" data-id="' + c.i + '">' +
+    '<span class="star' + (isSaved ? " on" : "") + '" data-star="' + c.i + '" role="button" tabindex="0" ' +
+      'aria-label="' + (isSaved ? "Remove from saved" : "Save this carpark") + '">' +
+      (isSaved ? "★" : "☆") + "</span>" +
+    '<span class="row-top"><h2>' + tidy(c.a) + "</h2>" +
+      '<span class="price ' + f.cls + '">' + f.text + "</span></span>" +
+    '<span class="meta"><span>' + fmtDist(row.d) + '</span><span class="dot"></span>' +
+      "<span>" + (TYPE_NAMES[c.t] || "Carpark") + "</span>" +
+      (c.g ? '<span class="dot"></span><span>' + c.g + "m gantry</span>" : "") + "</span>" +
+    lots + (tags ? '<span class="tags">' + tags + "</span>" : "") + "</button>";
+}
+
+function wireRows(root) {
+  root.querySelectorAll("[data-star]").forEach((s) => {
+    s.addEventListener("click", (e) => { e.stopPropagation(); toggleSaved(s.dataset.star); render(); });
+  });
+  root.querySelectorAll(".row[data-id]").forEach((b) => {
+    b.addEventListener("click", () => openDetail(b.dataset.id));
+  });
+}
+
+function render() {
+  if (!state.carparks) return;
+  if (state.selected) { renderDetail(); return; }
+
+  const rows = shortlist(40);
+  state.lastRows = rows;
+  drawPins(rows);
+
+  const byId = new Map(state.carparks.map((c) => [c.i, c]));
+  const saved = loadSaved().map((id) => byId.get(id)).filter(Boolean).map((c) => ({
+    c, d: haversine(state.centre.lat, state.centre.lng, c.y, c.x),
+    fee: priceOf(c), live: state.live && state.live.get(c.i),
+  }));
+
+  $("#saved").innerHTML = saved.length
+    ? '<div class="where">Saved</div>' + saved.map(cardHtml).join("") : "";
+  $("#list").innerHTML = rows.length
+    ? rows.slice(0, 15).map(cardHtml).join("")
+    : '<div class="note">No carparks of that type near here. Try clearing the filters or moving the map.</div>';
+  $("#scope").hidden = false;
+  wireRows($("#sheetBody"));
+
+  // Say what the distances are measured from. Once the map has been panned away
+  // from you, "310 m" would otherwise quietly start meaning something else.
+  const nearMe = state.me &&
+    haversine(state.me.lat, state.me.lng, state.centre.lat, state.centre.lng) < 60;
+  $("#where").innerHTML = "Nearest to <strong>" + (nearMe ? "you" : "the middle of the map") + "</strong>" +
+    (state.fetchedAt ? " &middot; live as of " +
+      state.fetchedAt.toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit" }) : "");
+}
+
+/* ---- one carpark --------------------------------------------------- */
+
+function openDetail(id) {
+  state.selected = id;
+  renderDetail();
+  drawPins(state.lastRows);
+  $("#sheetBody").scrollTop = 0;
+  if (state.layoutA && state.sheetFraction < 0.6) setSheet(0.7);
+}
+
+function closeDetail() {
+  state.selected = null;
+  render();
+}
+
+function renderDetail() {
+  const c = state.carparks.find((x) => x.i === state.selected);
+  if (!c) { closeDetail(); return; }
+  const now = new Date();
+  const fee = priceOf(c);
+  const live = state.live && state.live.get(c.i);
+  const occ = occupancy(live);
+  const f = feeText(fee);
+  const start = stayStart();
+  const end = new Date(start.getTime() + state.stay.minutes * 60000);
+  const at = (d) => d.toLocaleTimeString("en-SG",
+    { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Singapore" });
+  const day = start.toLocaleDateString("en-SG",
+    { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Singapore" });
 
   let lots = '<div class="meta">No live data for this carpark</div>';
-  const suspect = live && looksUnreported(live.total, live.available);
-  if (live && live.total !== null) {
-    const pct = Math.max(0, Math.min(1, live.available / live.total));
-    const colour = pct > 0.2 ? "var(--ok)" : pct > 0.05 ? "var(--warn)" : "var(--bad)";
-    lots =
-      '<div class="lots"><span class="n" style="color:' + colour + '">' + live.available +
+  if (occ !== null) {
+    const colour = occ > 0.2 ? "var(--ok)" : occ > 0.05 ? "var(--warn)" : "var(--bad)";
+    const age = live.at ? Math.round((now - live.at) / 60000) : null;
+    lots = '<div class="lots"><span class="n" style="color:' + colour + '">' + live.available +
       '</span><span class="of">of ' + live.total + ' lots free</span></div>' +
-      '<div class="bar"><i style="width:' + (pct * 100).toFixed(0) + '%;background:' + colour + '"></i></div>';
+      '<div class="barline"><i style="width:' + (occ * 100).toFixed(0) + '%;background:' + colour + '"></i></div>' +
+      (age !== null ? '<div class="meta">Updated ' + (age < 1 ? "just now" : age + " min ago") + "</div>" : "") +
+      (looksUnreported(live.total, live.available)
+        ? '<div class="meta">Every lot reported free, which usually means the sensors are down.</div>' : "");
   } else if (live) {
     lots = '<div class="meta">Not reporting lot counts right now</div>';
   }
 
-  // "12 lots free" means little on its own. "12 free, usually about 40% free at
-  // this hour" tells you whether you have been lucky or whether this is a
-  // carpark to avoid at 7pm. Only shown once a bucket has enough readings; the
-  // rest of the time the app stays quiet rather than guessing.
   const usual = typicalNow(c.i, now);
-  let usualTag = "";
+  let usualLine = "";
   if (usual !== null) {
-    usualTag = '<span class="tag">Usually ' + Math.round(usual * 100) + "% free now</span>";
-    if (live && live.total) {
-      const nowRate = live.available / live.total;
-      const gap = nowRate - usual;
-      if (gap <= -0.15) usualTag += '<span class="tag stale">Busier than usual</span>';
-      else if (gap >= 0.15) usualTag += '<span class="tag free">Quieter than usual</span>';
+    let s = "Usually " + Math.round(usual * 100) + "% free at this hour";
+    if (occ !== null) {
+      const gap = occ - usual;
+      if (gap <= -0.15) s += " &middot; busier than usual";
+      else if (gap >= 0.15) s += " &middot; quieter than usual";
     }
+    usualLine = '<div class="meta">' + s + "</div>";
   }
 
-  const tags = [
-    free ? '<span class="tag free">Free right now</span>' : "",
-    usualTag,
-    suspect ? '<span class="tag stale">Reports every lot free - sensors may be down</span>' : "",
-    stale ? '<span class="tag stale">Updated ' + ageMin + ' min ago</span>' : "",
-    c.g ? '<span class="tag">' + c.g + "m gantry</span>" : "",
-  ].filter(Boolean).join("");
+  let feeBody;
+  if (fee.unavailable === "season-only") {
+    feeBody = '<div class="fee-total"><span class="fee-n none">Season parking only</span></div>' +
+      '<div class="note" style="margin:0">HDB does not offer short-term parking here, so there is no ' +
+      "hourly rate to quote.</div>";
+  } else if (fee.unavailable) {
+    feeBody = '<div class="fee-total"><span class="fee-n none">Not open for that stay</span></div>' +
+      '<div class="note" style="margin:0">' + (c.n
+        ? "Part of that stay falls outside this carpark's short-term hours."
+        : "This carpark has no Night Parking Scheme, so a car cannot be left here overnight.") + "</div>";
+  } else {
+    const lines = fee.lines.map((l) =>
+      '<div class="brow"><span>' + l.label + (l.from ? " &middot; " + at(l.from) + "–" + at(l.to) : "") +
+      "</span><span>" + (l.amount < 0 ? "−" : "") + money(Math.abs(l.amount)) + "</span></div>").join("");
 
-  const where = distance === null ? "" :
-    '<div class="meta"><span>' +
-    (distance < 1000 ? Math.round(distance) + " m" : (distance / 1000).toFixed(1) + " km") +
-    " away (straight line)</span></div>";
+    const extras = [
+      fee.couponTotal !== null && fee.couponTotal !== fee.total
+        ? "Coupon carpark. Paper coupons come in half hours, so displaying them costs " +
+          money(fee.couponTotal) + "; the Parking.sg app charges the " + money(fee.total) + " above."
+        : "",
+      fee.grace ? "Under the 15-minute grace period at an electronic carpark, so there is nothing to pay." : "",
+      !fee.grace && fee.method === "electronic"
+        ? "Charged by the minute, and free if you leave within 15 minutes of entering." : "",
+      fee.peak
+        ? "One of the 12 HDB carparks with peak-hour surcharges. The daily and nightly caps do not apply here."
+        : "",
+    ].filter(Boolean);
 
-  return '<div class="row">' +
-    '<button class="star' + (isSaved ? " on" : "") + '" data-id="' + c.i + '" ' +
-      'aria-label="' + (isSaved ? "Remove from saved" : "Save this carpark") + '" ' +
-      'title="' + (isSaved ? "Remove from saved" : "Save this carpark") + '">' +
-      (isSaved ? "★" : "☆") + "</button>" +
-    "<h2>" + tidy(c.a) + "</h2>" + where + lots +
-    (tags ? '<div class="tags">' + tags + "</div>" : "") + "</div>";
+    feeBody =
+      '<div class="fee-total"><span class="fee-n ' + f.cls + '">' + f.text + "</span>" +
+        '<span class="fee-when">' + day + "<br>" + at(start) + " – " + at(end) + "</span></div>" +
+      '<div class="breakdown">' + lines +
+        '<div class="brow sum"><span>You pay</span><span>' + money(fee.total) + "</span></div></div>" +
+      extras.map((e) => '<div class="note" style="margin:0">' + e + "</div>").join("");
+  }
+
+  $("#saved").innerHTML = "";
+  $("#where").innerHTML = "";
+  $("#scope").hidden = true;
+  $("#list").innerHTML =
+    '<div class="detail">' +
+      '<button class="back" id="back">← Back to the list</button>' +
+      "<h2>" + tidy(c.a) + "</h2>" +
+      '<div class="meta"><span>' + (TYPE_NAMES[c.t] || "Carpark") + "</span>" +
+        (c.g ? '<span class="dot"></span><span>' + c.g + "m gantry</span>" : "") +
+        (fee.central ? '<span class="dot"></span><span>Central Area</span>' : "") +
+        (c.n ? '<span class="dot"></span><span>Night parking</span>' : "") +
+        (c.c ? '<span class="dot"></span><span>Coupon</span>' : "") + "</div>" +
+      lots + usualLine +
+      '<div class="fee-box"><div class="fee-h">Cost of this stay</div>' + feeBody + "</div>" +
+      '<a class="maps" href="https://www.google.com/maps/dir/?api=1&destination=' + c.y + "," + c.x +
+        '" target="_blank" rel="noopener"><button type="button">Directions</button></a>' +
+      '<div class="note">Rates are HDB’s published schedule, read on ' + R.RATES.checkedOn +
+        '. <a href="' + R.RATES.source + '" target="_blank" rel="noopener">Check them yourself</a>.</div>' +
+    "</div>";
+  $("#back").addEventListener("click", closeDetail);
 }
 
-function wireStars(root) {
-  root.querySelectorAll(".star").forEach((b) => {
+/* ---- the sheet ----------------------------------------------------- */
+
+function setSheet(fraction) {
+  const f = Math.max(0.18, Math.min(0.92, fraction));
+  $("#sheet").style.setProperty("--sheet-h", (f * 100).toFixed(1) + "%");
+  state.sheetFraction = f;
+}
+
+function initSheetDrag() {
+  const grip = $("#grip");
+  let startY = 0, startF = 0.46, dragging = false;
+
+  grip.addEventListener("pointerdown", (e) => {
+    if (!state.layoutA) return;
+    dragging = true; startY = e.clientY; startF = state.sheetFraction;
+    grip.setPointerCapture(e.pointerId);
+  });
+  grip.addEventListener("pointermove", (e) => {
+    if (dragging) setSheet(startF + (startY - e.clientY) / window.innerHeight);
+  });
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    // Snap, so the sheet always comes to rest somewhere deliberate.
+    const f = state.sheetFraction;
+    setSheet([0.22, 0.46, 0.88].reduce((a, b) => Math.abs(b - f) < Math.abs(a - f) ? b : a));
+  };
+  grip.addEventListener("pointerup", end);
+  grip.addEventListener("pointercancel", end);
+}
+
+function setLayout(which) {
+  state.layoutA = which === "a";
+  $("#app").dataset.layout = which;
+  $("#layoutBtn").textContent = state.layoutA ? "▤" : "▣";
+  $("#layoutBtn").title = state.layoutA ? "Switch to map above the list" : "Switch to a full-screen map";
+  try { localStorage.setItem(LAYOUT_KEY, which); } catch (e) {}
+  if (state.layoutA) setSheet(state.sheetFraction);
+  if (state.map) setTimeout(() => { state.map.invalidateSize({ pan: false }); relayoutPins(); }, 80);
+}
+
+/* ---- controls ------------------------------------------------------ */
+
+function initControls() {
+  const filter = $("#typeFilter");
+  filter.innerHTML = FILTERS.map((f) =>
+    '<button type="button" class="chip" data-type="' + f.key + '" aria-pressed="false">' +
+    f.label + "</button>").join("");
+  filter.querySelectorAll("[data-type]").forEach((b) => {
     b.addEventListener("click", () => {
-      toggleSaved(b.dataset.id);
-      if (state.lastPos) render(state.lastPos);
+      const t = b.dataset.type;
+      if (state.types.has(t)) state.types.delete(t); else state.types.add(t);
+      b.setAttribute("aria-pressed", state.types.has(t) ? "true" : "false");
+      closeDetail();
     });
   });
-}
 
-function render(pos) {
-  state.lastPos = pos;
-  const byId = new Map(state.carparks.map((c) => [c.i, c]));
-  const saved = loadSaved().map((id) => byId.get(id)).filter(Boolean);
+  $("#dur").addEventListener("change", (e) => {
+    state.stay.minutes = parseInt(e.target.value, 10);
+    render();
+  });
 
-  // Saved carparks get a distance too. A favourite 8km away is still worth
-  // knowing about, but only if the page says so - otherwise the card looks like
-  // it is nearby.
-  $("#saved").innerHTML = saved.length
-    ? '<div class="where">Saved</div>' +
-      saved.map((c) => card(c, haversine(pos.lat, pos.lng, c.y, c.x))).join("")
-    : "";
+  const now = $("#whenNow"), later = $("#whenLater"), at = $("#startAt");
+  now.addEventListener("click", () => {
+    state.stay.start = null;
+    now.setAttribute("aria-pressed", "true");
+    later.setAttribute("aria-pressed", "false");
+    at.hidden = true;
+    render();
+  });
+  later.addEventListener("click", () => {
+    now.setAttribute("aria-pressed", "false");
+    later.setAttribute("aria-pressed", "true");
+    at.hidden = false;
+    if (!at.value) {
+      // The next whole hour, in Singapore time - the answer to "later" more
+      // often than any other moment.
+      const d = new Date(Date.now() + 8 * 3600 * 1000 + 3600 * 1000);
+      d.setUTCMinutes(0, 0, 0);
+      at.value = d.toISOString().slice(0, 16);
+    }
+    state.stay.start = new Date(at.value + "+08:00");
+    render();
+  });
+  at.addEventListener("change", () => {
+    if (!at.value) return;
+    state.stay.start = new Date(at.value + "+08:00");
+    render();
+  });
 
-  const near = state.carparks
-    .map((c) => ({ c, d: haversine(pos.lat, pos.lng, c.y, c.x) }))
-    .sort((a, b) => a.d - b.d)
-    .slice(0, 15);
+  $("#layoutBtn").addEventListener("click", () => setLayout(state.layoutA ? "b" : "a"));
 
-  $("#list").innerHTML = near.map(({ c, d }) => card(c, d)).join("");
-  wireStars($("#list"));
-  wireStars($("#saved"));
-
-  $("#sub").textContent = "Live as of " + state.fetchedAt.toLocaleTimeString("en-SG",
-    { hour: "2-digit", minute: "2-digit" }) + " · " + state.carparks.length.toLocaleString() + " HDB carparks";
-}
-
-async function showFor(pos, label) {
-  if (!state.carparks) await loadStatic();
-  await loadLive();
-  render(pos);
-  $("#where").innerHTML = "Nearest carparks to <strong>" + label + "</strong>";
+  $("#locate").addEventListener("click", async () => {
+    const btn = $("#locate");
+    btn.disabled = true;
+    try {
+      const pos = await new Promise((res, rej) =>
+        navigator.geolocation.getCurrentPosition(
+          (p) => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
+          rej, { enableHighAccuracy: true, timeout: 15000 }));
+      state.me = pos;
+      if (state.meMarker) state.map.removeLayer(state.meMarker);
+      state.meMarker = L.marker([pos.lat, pos.lng], {
+        icon: L.divIcon({ className: "pin-icon", html: '<div class="me-dot"></div>', iconSize: [0, 0] }),
+        keyboard: false, zIndexOffset: -1000,
+      }).addTo(state.map);
+      state.selected = null;
+      state.map.setView([pos.lat, pos.lng], 17);
+    } catch (e) {
+      fail("Could not get your location. Check location permission, or search for a place instead.");
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 function fail(message) {
@@ -336,91 +815,90 @@ function fail(message) {
   $("#list").innerHTML = '<div class="note err">' + message + "</div>";
 }
 
-async function pick(result) {
-  await showFor(
-    { lat: parseFloat(result.LATITUDE), lng: parseFloat(result.LONGITUDE) },
-    result.SEARCHVAL
-  );
+function goTo(lat, lng) {
+  state.selected = null;
+  state.centre = { lat, lng };
+  state.map.setView([lat, lng], 17);
+  render();
 }
 
 // More than one place matches, and the ranking cannot be trusted - so ask
 // rather than guess. Showing the road name is what distinguishes "Jurong Point"
 // the mall from a clinic that happens to share two words with it.
 function offerChoices(results) {
+  $("#saved").innerHTML = "";
+  $("#scope").hidden = true;
   $("#where").innerHTML = "Which one did you mean?";
   $("#list").innerHTML = results.map((r, i) =>
-    '<button class="choice" data-i="' + i + '">' +
-      "<strong>" + r.SEARCHVAL + "</strong>" +
+    '<button class="row choice" data-i="' + i + '"><strong>' + r.SEARCHVAL + "</strong>" +
       '<span class="meta">' + [r.ROAD_NAME, r.POSTAL !== "NIL" ? "S" + r.POSTAL : ""]
-        .filter((x) => x && x !== "NIL").join(" · ") + "</span>" +
-    "</button>"
-  ).join("");
+        .filter((x) => x && x !== "NIL").join(" · ") + "</span></button>").join("");
   $("#list").querySelectorAll(".choice").forEach((b) => {
-    b.addEventListener("click", () => pick(results[+b.dataset.i]));
+    b.addEventListener("click", () => {
+      const r = results[+b.dataset.i];
+      goTo(parseFloat(r.LATITUDE), parseFloat(r.LONGITUDE));
+    });
   });
 }
-
-$("#locate").addEventListener("click", async () => {
-  const btn = $("#locate");
-  btn.disabled = true;
-  btn.textContent = "Locating…";
-  try {
-    const pos = await new Promise((res, rej) =>
-      navigator.geolocation.getCurrentPosition(
-        (p) => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
-        rej, { enableHighAccuracy: true, timeout: 15000 }
-      ));
-    btn.textContent = "Loading carparks…";
-    await showFor(pos, "your location");
-  } catch (e) {
-    fail("Could not get your location or the live data. Check location permission, " +
-      "or search for a destination instead.");
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Find carparks near me";
-  }
-});
 
 // Destination search, via OneMap - the government's own geocoder, CORS-open and
 // no key required. Geolocation only helps once you have arrived; planning a
 // trip means asking about somewhere you are not.
-$("#searchForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const q = $("#q").value.trim();
-  if (!q) return;
-  const go = $("#go");
-  go.disabled = true;
-  go.textContent = "…";
-  try {
-    const url = "https://www.onemap.gov.sg/api/common/elastic/search?searchVal=" +
-      encodeURIComponent(q) + "&returnGeom=Y&getAddrDetails=Y&pageNum=1";
-    const j = await fetch(url).then((r) => r.json());
-    const results = j.results || [];
-    if (!results.length) {
-      fail("Nothing found for “" + q + "”. Try a block number, building name or postal code.");
-      return;
+function initSearch() {
+  $("#searchForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const q = $("#q").value.trim();
+    if (!q) return;
+    const go = $("#go");
+    go.disabled = true;
+    try {
+      const url = "https://www.onemap.gov.sg/api/common/elastic/search?searchVal=" +
+        encodeURIComponent(q) + "&returnGeom=Y&getAddrDetails=Y&pageNum=1";
+      const j = await fetch(url).then((r) => r.json());
+      const results = j.results || [];
+      if (!results.length) {
+        fail("Nothing found for “" + q + "”. Try a block number, building name or postal code.");
+        return;
+      }
+      // OneMap's own ranking is not reliable enough to pick from blindly:
+      // searching "Jurong Point" returns a CLINIC IN TAMAN JURONG first, several
+      // kilometres from the mall, with the mall itself third. Silently taking the
+      // top hit would show carparks near somewhere the user never asked about,
+      // and the list would look perfectly plausible.
+      const exact = results.find((r) => r.SEARCHVAL.trim().toUpperCase() === q.toUpperCase());
+      const one = exact || (results.length === 1 ? results[0] : null);
+      if (one) goTo(parseFloat(one.LATITUDE), parseFloat(one.LONGITUDE));
+      else offerChoices(results.slice(0, 6));
+    } catch (err) {
+      fail("Search is unavailable right now. Try again in a moment.");
+    } finally {
+      go.disabled = false;
     }
+  });
+}
 
-    // OneMap's own ranking is not reliable enough to pick from blindly:
-    // searching "Jurong Point" returns a CLINIC IN TAMAN JURONG first, several
-    // kilometres from the mall, with the mall itself third. Silently taking the
-    // top hit would show carparks near somewhere the user never asked about,
-    // and the list would look perfectly plausible.
-    const exact = results.find((r) => r.SEARCHVAL.trim().toUpperCase() === q.toUpperCase());
-    if (exact) {
-      await pick(exact);
-    } else if (results.length === 1) {
-      await pick(results[0]);
-    } else {
-      offerChoices(results.slice(0, 6));
-    }
-  } catch (err) {
-    fail("Search is unavailable right now. Try again in a moment.");
-  } finally {
-    go.disabled = false;
-    go.textContent = "Search";
+/* ---- start --------------------------------------------------------- */
+
+(async function start() {
+  let saved = "a";
+  try { saved = localStorage.getItem(LAYOUT_KEY) || "a"; } catch (e) {}
+  setLayout(saved === "b" ? "b" : "a");
+  initSheetDrag();
+  initControls();
+  initSearch();
+  initMap();
+
+  try {
+    await loadStatic();
+  } catch (e) {
+    fail("Could not load the carpark list. Check your connection and reload.");
+    return;
   }
-});
+  // Live lots are a bonus, not a prerequisite: the map, the fees and the
+  // opening hours are all useful with no signal at all.
+  try { await loadLive(); } catch (e) {}
+  render();
+})();
 
 // Offline support. The manifest already claims this is an installable app, so
 // it should survive a lift-lobby dead spot: the shell and the carpark list are

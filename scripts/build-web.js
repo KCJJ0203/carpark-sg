@@ -27,6 +27,11 @@ const TYPE_CODES = {
   "BASEMENT CAR PARK": "B",
   "MECHANISED CAR PARK": "E",
   "COVERED CAR PARK": "C",
+  // Two sites are both at once. Left unmapped these showed as "?", which reads
+  // as a data problem rather than as the honest answer that the carpark has
+  // both kinds.
+  "MECHANISED AND SURFACE CAR PARK": "X",
+  "SURFACE/MULTI-STOREY CAR PARK": "U",
 };
 
 function build() {
