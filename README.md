@@ -1,7 +1,7 @@
 # Carpark SG
 
-Live HDB carpark availability across Singapore. Find somewhere to park near you or near where you
-are going, see how full it is right now, and know whether it is free at this moment.
+Live HDB carpark availability and parking fees across Singapore. Open the map, see what every
+carpark near you costs for the stay you have in mind, and how full it is right now.
 
 **→ [kcjj0203.github.io/carpark-sg](https://kcjj0203.github.io/carpark-sg/)**
 
@@ -10,6 +10,14 @@ open-data APIs directly.
 
 ## What it does
 
+- **A map of what parking costs** — every pin carries the price for your stay and the lots free now
+- **What it will actually cost**, worked out from HDB's published schedule and shown broken down by
+  rate band: Central Area, peak hour, night and daily caps, the 15-minute grace period, and the
+  half-hour rounding at coupon carparks
+- **Park now or later** — rates change at 5pm, at 10.30pm and on Sundays, so a two-hour stay at
+  Albert Centre costs $5.60 arriving at 2pm and $2.40 arriving at 6pm. The app prices each half
+  hour at whatever rate applies then, so a stay crossing a boundary stays right.
+- **Filter by carpark type** — multi-storey, surface, basement or covered
 - **Nearest carparks** by geolocation, or by searching any Singapore address, building or postal code
 - **Live availability** — lots free right now, with a fullness bar
 - **Free right now** — 1,671 HDB carparks are free on Sundays and public holidays, and the app knows
@@ -25,7 +33,8 @@ open-data APIs directly.
 | [data.gov.sg](https://data.gov.sg) — HDB Carpark Information | 2,270 carparks: location, type, gantry height, parking hours | open |
 | [data.gov.sg](https://data.gov.sg) — Carpark Availability | live lot counts, ~2,015 carparks reporting | open |
 | [data.gov.sg](https://data.gov.sg) — Public Holidays (MOM) | 2020-2027, drives "free right now" | open |
-| [OneMap](https://www.onemap.gov.sg) | address search | open |
+| [OneMap](https://www.onemap.gov.sg) | address search, and the map tiles | open |
+| [HDB](https://www.hdb.gov.sg/parking/other-parking-matters/shortterm-parking/shortterm-parking-charges) — Short-Term Parking Charges | the rate schedule | published web page |
 
 All official, all permitted, no API key, no scraping. That was a deliberate choice — see
 [the lesson below](#what-went-wrong-and-what-it-taught).
@@ -53,16 +62,36 @@ OneMap's top hit, kilometres from the mall. The app uses an exact name match whe
 otherwise asks, showing road names — because a plausible list of carparks near the wrong place is
 worse than a question.
 
-**Payload size.** The full carpark records are 794KB. All 2,270 use only **six** distinct
+**Payload size.** The full carpark records are 839KB. All 2,270 use only **six** distinct
 parking-hour patterns, so those became a lookup table instead of 2,270 copies; with coordinates
-rounded to about a metre, the download is 234KB.
+rounded to about a metre, the download is 248KB.
+
+**The rates are transcribed, and the repo knows it.** There is no parking-rate dataset — every
+dataset on data.gov.sg was checked. HDB publishes the schedule as a web page only, and their server
+returns 403 to scripted requests, so the numbers in `src/rates.js` were read in a browser and pinned
+with the date. Hard-coding was unavoidable; hard-coding *quietly* was not. So the file names its
+source, records when it was read, and `scripts/check-rates.js` re-reads the page monthly and fails
+loudly if any figure, either carpark list, or any peak window has moved. It never updates itself —
+a rate change deserves a human reading the page.
+
+**One rate engine, not two.** Pricing is rate windows, caps and boundary crossings. The page needs
+it and so does Node, and re-typing it into the HTML would guarantee the two drifted. `build-web.js`
+bundles `src/rates.js` and `src/windows.js` verbatim into `web/rates.js`, refuses to emit a bundle
+that still has an unresolved `require()`, and prices a known stay through the bundle as a build-time
+check.
+
+**Pins collapse rather than overlap.** A pin carrying both a price and a lot count is wide, and in
+town carparks sit close enough that the labels would pile into an unreadable heap. The nearest pin
+in a cluster keeps its label; the ones it would cover become dots. No carpark disappears — only the
+text on it, and what survives is the one you were most likely to be reading.
 
 ## Running it
 
 ```bash
-npm test                          # 37 tests, no network needed
+npm test                             # 102 tests, no network needed
 node scripts/collect.js --carparks   # rebuild the carpark list + one snapshot
 node scripts/build-web.js            # regenerate the files the page downloads
+node scripts/check-rates.js          # re-read HDB's rates; needs playwright
 ```
 
 The site is plain files in `web/`. Serve that directory with anything.
@@ -91,5 +120,10 @@ usable. Collection now runs on an always-on runner.
   yet. The app says so rather than letting an empty list read as "no parking nearby".
 - Distances are straight-line, not walking routes.
 - Availability is whatever the operator reports, and it can lag reality.
-- No parking *rates* — the HDB dataset does not carry them, and they will come from a verified
-  source rather than memory.
+- Fees cover **motor cars**. Motorcycles, heavy vehicles and the loading bays with their own
+  pricing are not quoted rather than quoted approximately.
+- Season parking is not priced. 111 carparks offer nothing else, and the app says "season parking
+  only" instead of inventing an hourly rate for them.
+- Whether a public holiday counts as a "weekend" for the 12 peak-hour carparks is not stated on
+  HDB's page, so the app goes by the actual day of the week. Most HDB carparks are free on public
+  holidays anyway, which makes this moot nearly everywhere it could apply.

@@ -1,0 +1,51 @@
+# Watches HDB's published rate schedule for changes.
+#
+# WHY THIS EXISTS: there is no parking-rate dataset on data.gov.sg - every
+# dataset was checked. The rates in src/rates.js are transcribed from a web
+# page, and transcribed numbers rot silently: a rate rises, a carpark joins the
+# peak-hour list, and the app keeps confidently quoting last year's price to
+# someone deciding where to park. This job is the alarm.
+#
+# It never edits the rates. A rate change deserves a human reading the page.
+
+name: Check HDB rates
+
+on:
+  schedule:
+    # 04:00 SGT on the 1st of each month. HDB changes these every few years, so
+    # monthly is often enough to catch one long before it matters, and it is a
+    # watchdog pointed at somebody else's website.
+    - cron: "0 20 1 * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install a browser
+        # HDB returns 403 to plain HTTP clients and renders the page with
+        # JavaScript, so reading it needs a real browser.
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Compare the published rates with the pinned ones
+        run: |
+          set +e
+          node scripts/check-rates.js
+          code=$?
+          set -e
+          # 1 = the rates actually changed, which must fail loudly.
+          # 2 = the site was unreachable, which is not a rate change and must
+          #     not cry wolf every time HDB has a bad morning.
+          if [ "$code" = "2" ]; then
+            echo "::warning::Could not reach HDB's rate page. Not treating that as a rate change."
+            exit 0
+          fi
+          exit $code

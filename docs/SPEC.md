@@ -30,6 +30,12 @@ Eight live carparks have no location record. They are dropped and counted, never
 | URA | later | free AccessKey + daily token; also carries RATES |
 | LTA DataMall | later | free AccountKey; covers malls and private carparks |
 
+**Rates are not in any dataset.** Every dataset on data.gov.sg was searched; none carries a price.
+HDB publishes its schedule as a web page, so `src/rates.js` transcribes it and pins the date it was
+read, and `scripts/check-rates.js` re-reads the page monthly and fails if anything moved. When URA
+arrives it brings machine-readable rates with it, which is a reason to prefer its own adapter's
+figures over anything transcribed — a source-agnostic `feeFor` per adapter, not one global table.
+
 **Every record carries its `source`.** IDs are namespaced (`hdb:ACB`) so two sources can never
 collide, and so the UI can say where a number came from. Adding a source means writing one adapter
 and registering it — no change to storage, matching or display.
@@ -45,7 +51,9 @@ Both are deliberately source-agnostic. An adapter's only job is to produce these
   type,                        // surface / multi-storey / basement
   gantryHeight,                // metres, null if unknown - matters for tall vehicles
   freeParking,                 // parsed windows, [] when never free
-  shortTermParking }           // parsed windows, [] when none
+  shortTermParking,            // parsed windows, [] when none
+  parkingSystem,               // electronic vs coupon: decides per-minute vs half-hour rounding
+  nightParking }               // Night Parking Scheme: permits 10.30pm-7am AND caps it at $5
 
 // How full it is. Changes constantly; collected every few minutes.
 { id: "hdb:ACB", source: "hdb", at,        // ISO timestamp
