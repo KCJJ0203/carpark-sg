@@ -51,23 +51,33 @@ function parseWindow(raw) {
   return [{ days, from, to }];
 }
 
-// `isPublicHoliday` is passed in rather than looked up here: a public holiday
-// falling on a weekday is exactly the case a day-of-week check gets wrong, and
-// the holiday calendar is a separate concern with its own update schedule.
-function isFreeAt(windows, when, isPublicHoliday) {
+// The predicate itself, in the terms the windows are stored in: a day name and
+// minutes past midnight. src/rates.js walks a stay a minute at a time and needs
+// to ask this thousands of times without building a Date for each one, so the
+// comparison lives here once rather than being reimplemented there.
+function matchesWindow(windows, dayName, minutes, isPublicHoliday) {
   if (!Array.isArray(windows) || !windows.length) return false;
-  // Singapore is UTC+8 with no daylight saving, so local time is deterministic.
-  const sg = new Date(when.getTime() + 8 * 3600 * 1000);
-  const day = DAY_NAMES[sg.getUTCDay()];
-  const minutes = sg.getUTCHours() * 60 + sg.getUTCMinutes();
-
   return windows.some((w) => {
     const dayMatches =
       w.days.includes("ALL") ||
-      w.days.includes(day) ||
+      w.days.includes(dayName) ||
       (isPublicHoliday && w.days.includes("PH"));
     return dayMatches && minutes >= w.from && minutes < w.to;
   });
 }
 
-module.exports = { parseWindow, isFreeAt, parseTime };
+// `isPublicHoliday` is passed in rather than looked up here: a public holiday
+// falling on a weekday is exactly the case a day-of-week check gets wrong, and
+// the holiday calendar is a separate concern with its own update schedule.
+function isFreeAt(windows, when, isPublicHoliday) {
+  // Singapore is UTC+8 with no daylight saving, so local time is deterministic.
+  const sg = new Date(when.getTime() + 8 * 3600 * 1000);
+  return matchesWindow(
+    windows,
+    DAY_NAMES[sg.getUTCDay()],
+    sg.getUTCHours() * 60 + sg.getUTCMinutes(),
+    isPublicHoliday
+  );
+}
+
+module.exports = { parseWindow, isFreeAt, matchesWindow, parseTime, DAY_NAMES };
