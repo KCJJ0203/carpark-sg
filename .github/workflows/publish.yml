@@ -44,6 +44,23 @@ jobs:
       - name: Rebuild usage patterns from collected history
         run: node scripts/build-patterns.js
 
+      - name: Report how much history actually landed
+        # Never fails the publish: thin history makes predictions slow to
+        # arrive, not wrong, and the site is worth shipping either way. But it
+        # must be SAID. The collector silently fell from 26 snapshots a day to
+        # 3 while every run it did make reported success, and nothing looked
+        # broken because nothing was checking the shape of the data.
+        run: |
+          set +e
+          out=$(node scripts/coverage.js)
+          thin=$?
+          set -e
+          echo "$out"
+          echo "$out" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$thin" != "0" ]; then
+            echo "::warning::Collection is running well below schedule - see the run summary."
+          fi
+
       - name: Commit the rebuilt data
         run: |
           git config user.name "carpark-collector"
