@@ -1,0 +1,6 @@
+# History files are append-only: one JSON snapshot per line, each independent
+# of every other, and order carries no meaning. So when two collectors write
+# the same day, the correct merge is BOTH sets of lines, not one side winning.
+# Git's union driver does exactly that, and it turns the one conflict this
+# repo actually produces into a non-event.
+data/history/*.jsonl merge=union
