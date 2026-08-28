@@ -15,7 +15,20 @@ on:
   schedule:
     # Every 30 minutes. GitHub may delay scheduled runs under load; an occasional
     # late sample is fine, a systematically missing time of day is not.
+    #
+    # It turned out to be the second thing. This schedule decayed from ~26
+    # dispatches a day to 3 over four days - and the once-daily publish workflow
+    # decayed identically, so it is GitHub's scheduler, not this cron. Every run
+    # that fired still succeeded, which is exactly why nothing looked wrong.
+    # Kept as a third line of defence; it is no longer relied upon.
     - cron: "*/30 * * * *"
+
+  # The dependable trigger: cron-job.org POSTs a repository_dispatch on a fixed
+  # half-hourly offset. An external scheduler firing a webhook is not subject to
+  # whatever back-pressure GitHub applies to its own cron queue.
+  repository_dispatch:
+    types: [collect]
+
   workflow_dispatch:
 
 permissions:
