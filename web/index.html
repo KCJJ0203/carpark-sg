@@ -84,6 +84,10 @@
     white-space: nowrap;
   }
   .chip[aria-pressed="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+  /* Sorting and filtering share a row but are different questions - one order,
+     any number of types - so a rule separates them rather than letting six
+     identical pills imply one group of six. */
+  .chip-div { flex: 0 0 auto; width: 1px; background: var(--line); margin: 4px 6px; }
 
   /* ---- list --------------------------------------------------------- */
   .where { font-size: 13px; color: var(--muted); margin: 12px 0 7px; }
@@ -208,7 +212,7 @@
           <option value="720">12 hours</option>
         </select>
       </div>
-      <div class="chips" id="typeFilter" role="group" aria-label="Carpark type"></div>
+      <div class="chips" id="controls"></div>
     </div>
     <div id="sheetBody">
       <div id="saved"></div>
@@ -235,6 +239,7 @@ const state = {
   centre: { lat: 1.3521, lng: 103.8198 },
   selected: null,
   types: new Set(),                      // empty means every type
+  sort: "near",
   stay: { start: null, minutes: 120 },   // start null means "now"
   map: null, markers: new Map(), meMarker: null, lastRows: [],
   layoutA: true, sheetFraction: 0.46,
@@ -310,6 +315,32 @@ const FILTERS = [
   { key: "C", label: "Covered" },
 ];
 
+// Sorting answers a different question from filtering, and only one order can
+// be true at a time.
+const SORTS = [
+  { key: "near", label: "Nearest" },
+  { key: "cheap", label: "Cheapest" },
+  { key: "lots", label: "Most lots" },
+];
+
+// A carpark that cannot be priced or is not reporting has no place at the top
+// of a "cheapest" or "emptiest" list, so it sorts last instead of sorting as
+// zero. Ties fall back to distance, which is the only ordering that is always
+// meaningful.
+const SORTERS = {
+  near: (a, b) => a.d - b.d,
+  cheap: (a, b) => {
+    const pa = a.fee.total === null ? Infinity : a.fee.total;
+    const pb = b.fee.total === null ? Infinity : b.fee.total;
+    return pa - pb || a.d - b.d;
+  },
+  lots: (a, b) => {
+    const la = a.live && a.live.available !== null ? a.live.available : -1;
+    const lb = b.live && b.live.available !== null ? b.live.available : -1;
+    return lb - la || a.d - b.d;
+  },
+};
+
 async function loadStatic() {
   const [c, h, p] = await Promise.all([
     fetch("carparks.min.json").then((r) => r.json()),
@@ -380,9 +411,14 @@ function shortlist(limit) {
   return state.carparks
     .filter((c) => !state.types.size || state.types.has(c.t))
     .map((c) => ({ c, d: haversine(c0.lat, c0.lng, c.y, c.x) }))
+    // Take the nearest N FIRST, and only then apply the chosen order. Sorting
+    // the whole island by price would answer "where is the cheapest carpark in
+    // Singapore", which is a question nobody driving has ever asked; this
+    // answers "of the ones around here, which is cheapest".
     .sort((a, b) => a.d - b.d)
     .slice(0, limit)
-    .map((x) => ({ c: x.c, d: x.d, fee: priceOf(x.c), live: state.live && state.live.get(x.c.i) }));
+    .map((x) => ({ c: x.c, d: x.d, fee: priceOf(x.c), live: state.live && state.live.get(x.c.i) }))
+    .sort(SORTERS[state.sort] || SORTERS.near);
 }
 
 function occupancy(live) {
@@ -463,9 +499,11 @@ function drawPins(rows) {
 
 // A pin carries a price AND a lot count, which makes it wide, and in town
 // carparks sit close enough together that the labels would pile into an
-// unreadable heap. So the nearest pin in any cluster keeps its label and the
-// ones it would cover collapse to dots: no carpark disappears, only the text on
-// it, and what survives is the one you were most likely to be reading.
+// unreadable heap. So in any cluster the pin the list ranks highest keeps its
+// label and the ones it would cover collapse to dots: no carpark disappears,
+// only the text on it. Priority follows the chosen order, so sorting by
+// Cheapest leaves the cheapest price readable rather than whichever pin
+// happened to be nearest.
 function relayoutPins() {
   if (!state.map) return;
   const items = [];
@@ -575,7 +613,8 @@ function render() {
   // from you, "310 m" would otherwise quietly start meaning something else.
   const nearMe = state.me &&
     haversine(state.me.lat, state.me.lng, state.centre.lat, state.centre.lng) < 60;
-  $("#where").innerHTML = "Nearest to <strong>" + (nearMe ? "you" : "the middle of the map") + "</strong>" +
+  const lead = { near: "Nearest to", cheap: "Cheapest near", lots: "Emptiest near" }[state.sort];
+  $("#where").innerHTML = lead + " <strong>" + (nearMe ? "you" : "the middle of the map") + "</strong>" +
     (state.fetchedAt ? " &middot; live as of " +
       state.fetchedAt.toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit" }) : "");
 }
@@ -738,11 +777,26 @@ function setLayout(which) {
 /* ---- controls ------------------------------------------------------ */
 
 function initControls() {
-  const filter = $("#typeFilter");
-  filter.innerHTML = FILTERS.map((f) =>
-    '<button type="button" class="chip" data-type="' + f.key + '" aria-pressed="false">' +
-    f.label + "</button>").join("");
-  filter.querySelectorAll("[data-type]").forEach((b) => {
+  const row = $("#controls");
+  row.innerHTML =
+    '<span role="group" aria-label="Order" style="display:contents">' +
+    SORTS.map((s) => '<button type="button" class="chip" data-sort="' + s.key + '" aria-pressed="' +
+      (s.key === state.sort) + '">' + s.label + "</button>").join("") + "</span>" +
+    '<span class="chip-div" aria-hidden="true"></span>' +
+    '<span role="group" aria-label="Carpark type" style="display:contents">' +
+    FILTERS.map((f) => '<button type="button" class="chip" data-type="' + f.key +
+      '" aria-pressed="false">' + f.label + "</button>").join("") + "</span>";
+
+  row.querySelectorAll("[data-sort]").forEach((b) => {
+    b.addEventListener("click", () => {
+      state.sort = b.dataset.sort;
+      row.querySelectorAll("[data-sort]").forEach((o) =>
+        o.setAttribute("aria-pressed", String(o.dataset.sort === state.sort)));
+      closeDetail();
+    });
+  });
+
+  row.querySelectorAll("[data-type]").forEach((b) => {
     b.addEventListener("click", () => {
       const t = b.dataset.type;
       if (state.types.has(t)) state.types.delete(t); else state.types.add(t);
