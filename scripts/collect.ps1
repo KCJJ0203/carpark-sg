@@ -26,6 +26,30 @@ function Write-Log($message) {
     Add-Content -Path $log -Value "$stamp $message"
 }
 
+# Runs an external program and reports its exit code and combined output.
+#
+# The 2>&1 matters and so does the ErrorActionPreference around it. git writes
+# ordinary progress to stderr - "To https://github.com/..." on a SUCCESSFUL
+# push - and with 2>&1 under ErrorActionPreference Stop, PowerShell turns those
+# lines into terminating errors. A clean push then reports itself as a failure.
+# For a native command the exit code is the truth and stderr is just chatter.
+function Invoke-Native {
+    param([string]$Exe, [string[]]$Arguments)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $lines = & $Exe @Arguments 2>&1 | ForEach-Object { $_.ToString() }
+        return [pscustomobject]@{ Code = $LASTEXITCODE; Output = ($lines -join " | ") }
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
+function Invoke-Git {
+    param([string[]]$Arguments)
+    return Invoke-Native -Exe "git" -Arguments $Arguments
+}
+
 try {
     Set-Location $root
     $cp = Join-Path $root "data\carparks.json"
@@ -34,8 +58,9 @@ try {
     if (-not (Test-Path $cp) -or (Get-Item $cp).LastWriteTime -lt (Get-Date).AddDays(-7)) {
         $jsArgs += "--carparks"
     }
-    $out = & node @jsArgs 2>&1
-    Write-Log $out
+    $run = Invoke-Native -Exe "node" -Arguments $jsArgs
+    Write-Log $run.Output
+    if ($run.Code -ne 0) { throw "collect.js exited $($run.Code)" }
 } catch {
     Write-Log "ERROR $($_.Exception.Message)"
     exit 1
@@ -46,36 +71,41 @@ try {
     Set-Location $root
 
     # Anything uncommitted outside data/ means KC is working in here right now.
-    # Rebasing his tree under him is not worth a snapshot, so it waits on disk
-    # instead - union merge means a later run carries it up with the rest.
-    $status = & git status --porcelain
-    $dirty = @($status | Where-Object { $_ -and ($_.Substring(3) -notlike "data/*") })
+    # Rebasing his tree under him is not worth a snapshot, so the reading waits
+    # on disk instead - union merge means a later run carries it up with the
+    # rest of them.
+    $status = Invoke-Git @("status", "--porcelain")
+    if ($status.Code -ne 0) { throw "git status failed: $($status.Output)" }
+    $dirty = @($status.Output -split " \| " | Where-Object { $_ -and ($_.Substring(3) -notlike "data/*") })
     if ($dirty.Count -gt 0) {
         Write-Log "SKIP push - uncommitted work in the repo, snapshot kept on disk"
         exit 0
     }
 
-    & git add data/history | Out-Null
-    & git diff --cached --quiet
-    if ($LASTEXITCODE -eq 0) {
+    $add = Invoke-Git @("add", "data/history")
+    if ($add.Code -ne 0) { throw "git add failed: $($add.Output)" }
+
+    $staged = Invoke-Git @("diff", "--cached", "--quiet")
+    if ($staged.Code -eq 0) {
         Write-Log "nothing new to publish"
         exit 0
     }
 
     $stamp = Get-Date -Format "yyyy-MM-ddTHH:mmzzz"
-    & git commit -q -m "data: availability snapshot $stamp (laptop)" | Out-Null
+    $commit = Invoke-Git @("commit", "-q", "-m", "data: availability snapshot $stamp (laptop)")
+    if ($commit.Code -ne 0) { throw "git commit failed: $($commit.Output)" }
 
-    $pull = & git pull --rebase 2>&1
-    if ($LASTEXITCODE -ne 0) {
+    $pull = Invoke-Git @("pull", "--rebase")
+    if ($pull.Code -ne 0) {
         # Never leave the repo mid-rebase: the next run would fail, and so would
         # anything KC does in here afterwards. The commit stays local and the
         # next tick tries again.
-        & git rebase --abort 2>&1 | Out-Null
-        throw "git pull failed, rebase aborted: $pull"
+        Invoke-Git @("rebase", "--abort") | Out-Null
+        throw "git pull failed, rebase aborted: $($pull.Output)"
     }
 
-    $push = & git push 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "git push failed: $push" }
+    $push = Invoke-Git @("push")
+    if ($push.Code -ne 0) { throw "git push failed: $($push.Output)" }
     Write-Log "published"
 } catch {
     Write-Log "PUBLISH FAILED $($_.Exception.Message)"
