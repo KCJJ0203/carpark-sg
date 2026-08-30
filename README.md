@@ -70,9 +70,17 @@ rounded to about a metre, the download is 248KB.
 dataset on data.gov.sg was checked. HDB publishes the schedule as a web page only, and their server
 returns 403 to scripted requests, so the numbers in `src/rates.js` were read in a browser and pinned
 with the date. Hard-coding was unavoidable; hard-coding *quietly* was not. So the file names its
-source, records when it was read, and `scripts/check-rates.js` re-reads the page monthly and fails
-loudly if any figure, either carpark list, or any peak window has moved. It never updates itself —
-a rate change deserves a human reading the page.
+source, records when it was read, and `scripts/check-rates.js` re-reads the page weekly and
+Telegrams if any figure, either carpark list, or any peak window has moved. It never updates
+itself — a rate change deserves a human reading the page.
+
+That check runs from a laptop, not from CI, and the reason is worth recording. HDB serves a
+**headless** browser `403 Error - Forbidden` and a windowed one the real page — measured both ways
+on one machine in the same minute — and blocks GitHub's runners either way, even windowed under
+xvfb. It also has to tell those two cases apart: its first ever run reported twelve confident
+findings, every one false, because it had been handed an empty error page and read that as "every
+rate changed at once". Each page must now contain a known landmark before any conclusion is drawn
+from it. A watchdog that cries wolf is worse than no watchdog.
 
 **One rate engine, not two.** Pricing is rate windows, caps and boundary crossings. The page needs
 it and so does Node, and re-typing it into the HTML would guarantee the two drifted. `build-web.js`
@@ -114,9 +122,20 @@ The same lesson arrived again mid-build. Collection ran from a desktop on a 30-m
 produced 6-7 samples a day instead of 48, because the machine sleeps — and 12 of 24 hours had *no*
 samples at all, including the 5-8pm peak. The scheduled task had been verified: it ran, exited 0,
 wrote a file. That proved the mechanism worked and said nothing about whether the data would be
-usable. Collection now runs on an always-on runner.
+usable. Collection moved to an always-on runner.
 
 **Check the shape of what you collected, not just that collection happened.**
+
+And then it happened a third time, which is why that sentence is now a script. GitHub's scheduler
+quietly stopped dispatching the workflow — 26 snapshots a day became 3 — while every run that did
+fire reported success, none were cancelled, and the workflow sat there marked active. The
+once-daily publish workflow decayed in exactly the same shape, which is what proved it was
+GitHub's scheduler rather than our cron. Meanwhile the laptop task had been collecting a *perfect*
+48 a day across all 24 hours and publishing none of it, because it wrote to disk and never pushed.
+
+Collection now comes from three overlapping sources and `scripts/coverage.js` reports snapshots,
+hours covered and the longest gap per day — the gap being the part that hurts, since it is a time
+of day the app can never learn anything about. See [docs/COLLECTION.md](docs/COLLECTION.md).
 
 ## Limits
 
