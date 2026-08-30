@@ -81,13 +81,43 @@ function scrape() {
 
 const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
+// Opens a page and refuses to report on it unless it is demonstrably the page
+// we meant to read.
+//
+// WHY: without this the script cannot tell "HDB blocked me" from "HDB changed
+// the rates". An empty page fails every single check at once and reports twelve
+// confident findings, all false. That is worse than no check - it is a monthly
+// alarm that means nothing, which is an alarm nobody reads. A landmark that has
+// to be present turns a blocked page into "could not read" (exit 2, a warning)
+// instead of "everything changed" (exit 1, an alarm).
+async function open(page, url, landmark) {
+  await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
+  const seen = await page.evaluate(() => ({
+    title: document.title,
+    href: location.href,
+    length: document.body.innerText.length,
+    sample: document.body.innerText.replace(/\s+/g, " ").trim().slice(0, 200),
+  }));
+  if (!seen.sample.includes(landmark) &&
+      !(await page.evaluate((l) => document.body.innerText.includes(l), landmark))) {
+    throw new Error(
+      "the page did not contain " + JSON.stringify(landmark) + ", so it is not the " +
+      "rate schedule and nothing can be concluded from it.\n" +
+      "    url    : " + seen.href + "\n" +
+      "    title  : " + JSON.stringify(seen.title) + "\n" +
+      "    length : " + seen.length + " characters\n" +
+      "    starts : " + JSON.stringify(seen.sample)
+    );
+  }
+}
+
 (async () => {
   const browser = await chromium.launch();
   const problems = [];
   try {
     const page = await browser.newPage();
 
-    await page.goto(CHARGES, { waitUntil: "networkidle", timeout: 60000 });
+    await open(page, CHARGES, "Short-term parking charges for motor cars");
     const got = await page.evaluate(scrape);
 
     for (const [what, phrase] of EXPECTED_PHRASES) {
@@ -115,7 +145,7 @@ const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
       }
     }
 
-    await page.goto(EPS, { waitUntil: "networkidle", timeout: 60000 });
+    await open(page, EPS, "Calculation of parking charges");
     const eps = await page.evaluate(() =>
       document.body.innerText.replace(/ /g, " ").replace(/\s+/g, " ").trim());
     if (!eps.includes("15-minute grace period")) {
