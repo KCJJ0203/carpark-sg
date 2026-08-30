@@ -36,9 +36,12 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Compare the published rates with the pinned ones
+        # xvfb gives the runner a display, so the browser can open a real window.
+        # HDB answers a headless browser with 403 and a windowed one with the
+        # page - so on a headless runner there is no window to open without one.
         run: |
           set +e
-          node scripts/check-rates.js
+          xvfb-run --auto-servernum node scripts/check-rates.js
           code=$?
           set -e
           # 1 = the rates actually changed, which must fail loudly.
