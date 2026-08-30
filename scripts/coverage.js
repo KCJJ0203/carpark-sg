@@ -66,7 +66,11 @@ function main() {
   console.log("date         snapshots  hours  longest gap");
   console.log("-----------  ---------  -----  -----------");
   for (const d of days) {
-    const flag = d.n < THIN_PER_DAY || d.hours < GOOD_HOURS ? "  <-- thin" : "";
+    // The newest day is still being collected, so judging it against a full
+    // day's target would flag every healthy morning as a problem.
+    const partial = d === days[days.length - 1];
+    const flag = partial ? "  (today, still collecting)"
+      : d.n < THIN_PER_DAY || d.hours < GOOD_HOURS ? "  <-- thin" : "";
     console.log(
       d.date.padEnd(13) +
       String(d.n).padStart(6) + "     " +
