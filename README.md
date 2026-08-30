@@ -91,8 +91,12 @@ text on it, and what survives is the one you were most likely to be reading.
 npm test                             # 102 tests, no network needed
 node scripts/collect.js --carparks   # rebuild the carpark list + one snapshot
 node scripts/build-web.js            # regenerate the files the page downloads
-node scripts/check-rates.js          # re-read HDB's rates; needs playwright
+node scripts/check-rates.js          # re-read HDB's rates (opens a browser window)
+node scripts/coverage.js             # how much history actually landed, per day
 ```
+
+`playwright` is the only dependency, and only the rate check uses it — the tests and the site need
+nothing installed.
 
 The site is plain files in `web/`. Serve that directory with anything.
 

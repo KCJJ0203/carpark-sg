@@ -10,12 +10,16 @@
 
 name: Check HDB rates
 
+# NOT SCHEDULED, on purpose. HDB answers this runner "403 Error - Forbidden"
+# whether the browser is headless or windowed under xvfb, so from here the check
+# can only ever report that it could not look. A monthly job that always says
+# "could not check" is noise, and noise is how the last two silent failures in
+# this repo stayed invisible for days.
+#
+# The real check runs on KC's laptop, where a windowed browser gets the page:
+# scheduled task "Carpark rate check", monthly. This workflow stays for running
+# it by hand, and as the place the logic lives if HDB ever opens up.
 on:
-  schedule:
-    # 04:00 SGT on the 1st of each month. HDB changes these every few years, so
-    # monthly is often enough to catch one long before it matters, and it is a
-    # watchdog pointed at somebody else's website.
-    - cron: "0 20 1 * *"
   workflow_dispatch:
 
 jobs:

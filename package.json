@@ -5,5 +5,8 @@
   "description": "Live carpark availability across Singapore",
   "scripts": {
     "test": "node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
   }
 }
