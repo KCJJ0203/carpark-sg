@@ -680,6 +680,19 @@ function tidy(address) {
 }
 const fmtDist = (d) => d < 1000 ? Math.round(d) + " m" : (d / 1000).toFixed(1) + " km";
 
+// Roughly how long that is on foot. NOT a route: OneMap's routing service needs
+// a registered account and a token that expires every three days, which a page
+// with no server of its own cannot hold, and it would want a call per carpark
+// on every pan. So this is the straight-line distance walked at 5km/h with a
+// quarter added for the fact that pavements do not go in straight lines, and it
+// is written with a "~" and explained wherever it appears. Being a minute out
+// costs nobody anything; the number it is derived from is already labelled as
+// the crow flies.
+const DETOUR = 1.25;
+const WALK_M_PER_MIN = 5000 / 60;
+const walkMins = (metres) => Math.max(1, Math.round((metres * DETOUR) / WALK_M_PER_MIN));
+const fmtWalk = (metres) => "~" + walkMins(metres) + " min walk";
+
 // Saved carparks live in this browser only. There is no account and no server,
 // so there is nothing to lose or leak - and nothing to sync either, which is
 // stated in the UI rather than left for someone to discover on a second device.
@@ -900,7 +913,8 @@ function cardHtml(row) {
       (isSaved ? "★" : "☆") + "</span>" +
     '<span class="row-top"><h2>' + tidy(c.a) + "</h2>" +
       '<span class="price ' + f.cls + '">' + f.text + "</span></span>" +
-    '<span class="meta"><span>' + fmtDist(row.d) + '</span><span class="dot"></span>' +
+    '<span class="meta"><span>' + fmtWalk(row.d) + '</span><span class="dot"></span>' +
+      "<span>" + fmtDist(row.d) + '</span><span class="dot"></span>' +
       "<span>" + (TYPE_NAMES[c.t] || "Carpark") + "</span>" +
       (c.g ? '<span class="dot"></span><span>' + c.g + "m gantry</span>" : "") + "</span>" +
     lots + (tags ? '<span class="tags">' + tags + "</span>" : "") + "</button>";
@@ -1304,6 +1318,7 @@ function renderDetail() {
   const c = state.carparks.find((x) => x.i === state.selected);
   if (!c) { closeDetail(); return; }
   const now = new Date();
+  const dist = haversine(state.centre.lat, state.centre.lng, c.y, c.x);
   const fee = priceOf(c);
   const live = state.live && state.live.get(c.i);
   const occ = occupancy(live);
@@ -1413,7 +1428,9 @@ function renderDetail() {
     '<div class="detail">' +
       '<button class="back" id="back">← Back to the list</button>' +
       "<h2>" + tidy(c.a) + "</h2>" +
-      '<div class="meta"><span>' + (TYPE_NAMES[c.t] || "Carpark") + "</span>" +
+      '<div class="meta"><span>' + fmtWalk(dist) + '</span><span class="dot"></span>' +
+        "<span>" + fmtDist(dist) + " as the crow flies</span>" +
+        '<span class="dot"></span><span>' + (TYPE_NAMES[c.t] || "Carpark") + "</span>" +
         (c.g ? '<span class="dot"></span><span>' + c.g + "m gantry</span>" : "") +
         (fee.central ? '<span class="dot"></span><span>Central Area</span>' : "") +
         (c.n ? '<span class="dot"></span><span>Night parking</span>' : "") +
@@ -1426,6 +1443,9 @@ function renderDetail() {
       dayChartHtml(c) +
       '<a class="maps" href="https://www.google.com/maps/dir/?api=1&destination=' + c.y + "," + c.x +
         '" target="_blank" rel="noopener"><button type="button">Directions</button></a>' +
+      '<div class="note">The walk is an estimate: ' + fmtDist(dist) + ' in a straight line at ' +
+        "walking pace, with a quarter added because pavements are not straight. It is not a route, " +
+        "and it does not know about the expressway in between.</div>" +
       (hasOwnRates(c)
         ? '<div class="note">Rates come from URA’s own Car Park Details service, so they are ' +
           "whatever URA currently publishes for this carpark.</div>"

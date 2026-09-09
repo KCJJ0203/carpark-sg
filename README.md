@@ -194,6 +194,11 @@ list, because the list is rewritten every time the map settles, which is precise
 looking for the message. And "find me" now uses the same centring as search, so on a phone you are
 placed above the sheet rather than behind it.
 
+**An honest estimate beats a fake route.** Every row now says "~3 min walk" beside the distance,
+because "170 m" makes you do arithmetic and a time does not. It is derived, not routed: straight
+line, walking pace, a quarter added for corners. That is a number being a minute out, which costs
+nobody anything — unlike the prices, where this project refuses to estimate at all.
+
 **Three vehicles, and silence where the source is silent.** URA publishes motorcycle and
 heavy-vehicle rates in the same rows the app already downloads — 842 and 664 of them, previously
 thrown away. They are priced now: a motorcycle on Aliwal St is $0.01 per 3 minutes, so two hours is
@@ -296,7 +301,11 @@ of day the app can never learn anything about. See [docs/COLLECTION.md](docs/COL
   rejected: three carparks in one live sample reported more lots free than their stated capacity.
 - **87 URA carparks cannot be priced for an overnight stay**, because URA publishes no rate for
   those hours. See the note above.
-- Distances are straight-line, not walking routes.
+- **The walk is an estimate, not a route.** OneMap's routing service answers 401 without a
+  registered account and a token that expires every three days, which a page with no server of its
+  own cannot hold, and it would want a call per carpark on every pan. So the walk is the
+  straight-line distance at walking pace with a quarter added for the fact that pavements are not
+  straight. It does not know about the expressway in between, and the page says so.
 - Availability is whatever the operator reports, and it can lag reality.
 - **Motorcycles and lorries are priced only where URA prices them** — 214 and 162 carparks. HDB
   publishes a schedule for motor cars, so anything else at an HDB carpark says "no motorcycle rate

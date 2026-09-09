@@ -389,6 +389,48 @@ async function auditChrome(browser, errors) {
   }
 }
 
+// A walking estimate that does not pretend to be a route.
+async function auditWalk(browser, errors) {
+  console.log("\n== how far it is on foot ==");
+  const { ctx, page } = await open(browser, 1600, 1000, errors);
+  await page.evaluate(() => goTo(1.3006, 103.8388, 16));
+  await page.waitForTimeout(900);
+
+  // The FIRST .meta of each row is the distance line; rows also carry a second
+  // one for the live count, which has nothing to say about walking.
+  // Read the spans separately: textContent runs them together, so "170 m" and
+  // "On-street" arrive as "170 mOn-street" and no word boundary survives.
+  const rows = await page.evaluate(() => [...document.querySelectorAll(".row[data-id]")]
+    .slice(0, 6).map((r) => [...r.querySelector(".meta").children]
+      .map((e) => e.textContent.trim()).filter(Boolean).join(" | ")));
+  check("each row says how long the walk is", rows.every((t) => /min walk/.test(t)),
+    JSON.stringify(rows.slice(0, 2)));
+  check("it is marked as an estimate, not a promise",
+    rows.every((t) => /~\s*\d+ min walk/.test(t)), rows[0]);
+  check("the distance is still there beside it",
+    rows.every((t) => /\d+\s*(m|km)\b/.test(t)), rows[0]);
+
+  // Longer walks must read as longer, or the number is decoration.
+  const scale = await page.evaluate(() => {
+    const w = (m) => walkMins(m);
+    return { near: w(100), mid: w(500), far: w(1200) };
+  });
+  check("the estimate grows with the distance",
+    scale.near < scale.mid && scale.mid < scale.far, JSON.stringify(scale));
+  check("a 500m walk lands in a believable range", scale.mid >= 5 && scale.mid <= 9,
+    scale.mid + " min for 500 m");
+
+  // And the carpark panel has to admit what it is.
+  await page.click(".row[data-id]");
+  await page.waitForTimeout(500);
+  const note = await page.evaluate(() =>
+    [...document.querySelectorAll(".detail .note")].map((n) => n.textContent).join(" "));
+  check("the panel says the walk is not a route",
+    /not a route|straight line/i.test(note), note.replace(/\s+/g, " ").slice(0, 110));
+
+  await ctx.close();
+}
+
 // URA prices motorcycles and lorries; HDB's transcribed schedule is cars only.
 // Quoting a car rate for a motorcycle would be wrong in the direction that
 // costs money, so the app has to say it does not know.
@@ -808,6 +850,7 @@ async function auditTablet(browser, errors) {
     await auditDesktop(browser, errors);
     await auditChrome(browser, errors);
     await auditVehicles(browser, errors);
+    await auditWalk(browser, errors);
     await auditWhenPanel(browser, errors);
     await auditPriceChart(browser, errors);
     await auditPhone(browser, errors);
