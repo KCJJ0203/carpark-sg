@@ -98,3 +98,43 @@ test("round-trips an availability figure to within a decile", () => {
   assert.strictEqual(r.known, true);
   assert.ok(Math.abs(r.available - 0.4) <= 0.05, "got " + r.available);
 });
+
+// A carpark whose sensors are dead reports every lot free, for ever. The list
+// already flags that ("sensors may be down") - but the predictions used to
+// swallow it as truth and then say "Usually 100% free now" with complete
+// confidence. Measured in real history: hdb:ACM reported every one of its 738
+// readings as fully empty, and 20 other carparks did the same.
+//
+// A confident wrong number is this project's cardinal sin: it sends someone
+// across town to a full carpark. Silence is the honest answer.
+test("readings that look like dead sensors are not learned from", async (t) => {
+  const isHoliday = () => false;
+
+  // Ten Wednesdays at 09:00 SGT, which is bucket 9.
+  const START = "2026-08-19T01:00:00Z";
+  const weeks = (n) => Array.from({ length: n }, (_, i) => weeklyAt(START, i));
+
+  await t.test("a big carpark reporting every lot free teaches nothing", () => {
+    const acc = accumulate(weeks(10).map((t) => snap(t, "hdb:DEAD", 500, 500)), isHoliday);
+    assert.strictEqual(acc["hdb:DEAD"], undefined,
+      "a carpark with only unreported-looking readings should have no pattern at all");
+  });
+
+  await t.test("a small carpark really can be empty, and is believed", () => {
+    // Below the 50-lot line an empty carpark is entirely plausible, so warning
+    // about these would train people to ignore the warning.
+    const acc = accumulate(weeks(10).map((t) => snap(t, "hdb:TINY", 8, 8)), isHoliday);
+    assert.ok(acc["hdb:TINY"], "8 of 8 lots free is believable");
+    assert.strictEqual(encode(acc["hdb:TINY"])[9], "9");
+  });
+
+  await t.test("good readings survive alongside discarded ones", () => {
+    const snaps = weeks(10).map((t) => ({
+      t, r: [["hdb:MIXED", "C", 500, 500, 0], ["hdb:REAL", "C", 500, 250, 0]],
+    }));
+    const acc = accumulate(snaps, isHoliday);
+    assert.strictEqual(acc["hdb:MIXED"], undefined);
+    assert.ok(acc["hdb:REAL"], "a plausible reading in the same snapshot is kept");
+    assert.strictEqual(encode(acc["hdb:REAL"])[9], "5", "250 of 500 is about half");
+  });
+});

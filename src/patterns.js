@@ -2,6 +2,8 @@
 //
 // Pure and offline. The collector gathers; this only ever reads.
 
+const { looksUnreported } = require("./quality");
+
 // Three day types, 24 hours each.
 //
 // Carparks behave completely differently by day type. An HDB residential
@@ -44,6 +46,13 @@ function accumulate(snapshots, isHoliday) {
       if (type !== "C") continue;
       // A total of 0 means the carpark was not reporting, not that it was full.
       if (!total || available === null || available === undefined) continue;
+      // A large carpark reporting EVERY lot free has dead sensors, not space.
+      // The list already says so on the card; learning from it anyway produced
+      // a confident "Usually 100% free now" for 21 carparks, one of which
+      // reported itself empty in all 738 of its readings. A prediction that
+      // sends someone across town to a full carpark is worse than no
+      // prediction, so these readings teach nothing and the bucket stays blank.
+      if (looksUnreported(total, available)) continue;
 
       if (!out[id]) out[id] = Array.from({ length: BUCKETS }, () => ({ sum: 0, count: 0 }));
       out[id][bucket].sum += available / total;
