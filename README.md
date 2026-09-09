@@ -56,6 +56,11 @@ systems for the same point — and agrees to **8 centimetres**.
   snapshot, 36 carparks reported 100% free — including one with 2,754 lots. The threshold sits at 50
   lots because the observed sizes were 4, 4, 4, 10, 10, then 50, 66, 98 … 2,754: a four-lot carpark
   really can be empty, so warning about those would train people to ignore the warning.
+- **And the predictions have to obey the same rule.** They did not, at first. `hdb:ACM` reported
+  every lot free in *all 738* of its readings — dead sensors — and the model dutifully learned
+  "usually 100% free now", which is a confident invitation to drive across town to a full carpark.
+  The list had been flagging that carpark the whole time; the predictions simply never asked. 21
+  carparks were doing it. They are silent now, and silence is the honest answer.
 
 **Never guess which place you meant.** Searching "Jurong Point" returns a clinic in Taman Jurong as
 OneMap's top hit, kilometres from the mall. The app uses an exact name match when there is one and
