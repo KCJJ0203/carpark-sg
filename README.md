@@ -119,6 +119,32 @@ refuses to emit a bundle that still has an unresolved `require()`, and prices a 
 each engine as a build-time check — including a whole night at Angullia Park, which has to come
 back $5.60 and not $11.90.
 
+**The desktop layout is not the phone layout with more air.** The page began as a map with a
+draggable sheet over it, which is right on a phone and wrong on a 1920px monitor, where it produced
+a letterboxed map and a list hidden in a drawer. Past 980px the sheet becomes a fixed rail beside
+the map, the map takes about three quarters of the window, and the drag handle disappears because
+there is nothing left to drag.
+
+On a phone the sheet still drags, but it no longer snaps to three preset heights — it stays where
+it is put — and letting go re-anchors the list to the middle of the strip of map you can still see.
+That last part is the whole fix: "cheapest near the middle of the map" used to mean the middle of a
+map that was half covered by the list quoting it.
+
+**The stay is two sliders, not two dropdowns.** How long you are staying is a slider over a scale
+that is fifteen minutes wide at the short end and an hour wide at the long end, because 15 versus 30
+minutes is a real difference to a driver (the grace period sits between them) and 9 versus 10 hours
+is not. Arrival time is a slider across the day, and dragging it re-prices every carpark on screen —
+which is the fastest way to answer "is it cheaper if I come after five?". Both read out as
+`12.00pm → 2.00pm`, because the question is really "what will I pay", and that depends on when you
+leave as much as when you arrive.
+
+**The search suggests, because the geocoder's first answer is often wrong.** Asked for "orchard
+road", OneMap returns a HOTEL ON BIDEFORD ROAD first and Orchard Road itself second; asked for
+"Jurong Point" it returns a clinic in Taman Jurong. Suggestions appear as you type, each with its
+road name or postcode, an exact name match is floated to the top, and a result that IS a road is
+labelled as one and zooms the map out — because "I am going to Orchard, where is parking cheap"
+wants two kilometres of road, not one shopfront.
+
 **Pins collapse rather than overlap.** A pin carrying both a price and a lot count is wide, and in
 town carparks sit close enough that the labels would pile into an unreadable heap. The nearest pin
 in a cluster keeps its label; the ones it would cover become dots. No carpark disappears — only the
@@ -133,6 +159,7 @@ node scripts/build-web.js            # regenerate the files the page downloads
 node scripts/check-rates.js          # re-read HDB's rates (opens a browser window)
 node scripts/coverage.js             # how much history actually landed, per day
 node scripts/audit-ura.js            # what URA's adapter produced, priced end to end
+node scripts/audit-ui.js             # drives the page like a user at three window sizes
 ```
 
 `playwright` is the only dependency, and only the rate check uses it — the tests and the site need
