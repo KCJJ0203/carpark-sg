@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f1419">
-<title>Carpark SG — live HDB carpark availability and parking fees</title>
+<meta name="description" content="What parking costs near any place in Singapore, hour by hour.
+Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rates, live lot counts.">
+<title>Carpark SG — when parking near you is cheapest</title>
 <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="lib/leaflet.css">
 <style>
@@ -103,6 +105,30 @@
      below is more specific and turns wrapping back on. */
   #typeChips { flex: 1 1 auto; min-width: 0; }
 
+  /* ---- when to go ---------------------------------------------------- */
+  /* The front page of this app is a question about TIME, not a list of
+     carparks: parking near here is free after 5pm, and no amount of sorting a
+     list by distance will tell you that. */
+  .when-panel {
+    border: 1px solid var(--line); border-radius: 14px; padding: 13px 14px 12px;
+    margin: 10px 0 4px; background: var(--card);
+  }
+  .verdict { font-size: 20px; font-weight: 700; line-height: 1.25; letter-spacing: -0.01em; }
+  .verdict .big { font-size: 26px; }
+  .verdict em { font-style: normal; color: var(--ok); }
+  .verdict-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .verdict-sub b { color: var(--ink); font-weight: 600; }
+  .save { color: var(--ok); font-weight: 700; }
+  /* On a phone the panel has to fit the verdict AND the hours in the height the
+     sheet opens at, or the app opens on half an answer. The heading above the
+     verdict is the first thing to go: the verdict says what it is. */
+  @media (max-width: 979px) {
+    .when-panel { padding: 11px 12px 10px; margin: 8px 0 4px; }
+    .when-panel > .fee-h { display: none; }
+    .when-panel .verdict { margin-top: 0 !important; }
+    #when .day-bars { height: 58px; margin: 7px 0 4px; }
+  }
+
   /* ---- what it costs through the day --------------------------------- */
   /* The reason this app exists. Live availability is answered by other sites;
      none of them answer "come at six instead and it is half the price". */
@@ -121,6 +147,10 @@
   .day-bars .free i { background: var(--ok); opacity: .45; }
   .day-bars .now i { background: var(--ink); opacity: .95; }
   .day-bars .none i { background: repeating-linear-gradient(45deg, var(--line), var(--line) 2px, transparent 2px, transparent 4px); opacity: 1; }
+  /* Hours that have already gone. Shown, because they are the context that
+     makes the rest of the day legible, but never recommended and not clickable. */
+  .day-bars .past i { opacity: .16; }
+  .day-bars button:disabled { cursor: default; }
   .day-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
   .day-note { font-size: 13px; color: var(--muted); margin-top: 8px; }
   .day-note b { color: var(--ink); }
@@ -376,12 +406,16 @@
       </div>
     </div>
     <div id="sheetBody">
+      <!-- Answered before the list, because it is the question the list cannot
+           answer: not "which carpark", but "what hour". -->
+      <div id="when"></div>
       <div id="saved"></div>
       <div class="where" id="where"></div>
       <div id="list"></div>
       <div class="note" id="scope">
-        <strong>HDB and URA carparks.</strong> Shopping-mall and private carparks are not included
-        yet, so an empty list here does not mean there is no parking nearby.
+        <strong>Prices are for motor cars at HDB and URA carparks.</strong> Shopping-mall and private
+        carparks are not included yet, so an empty list here does not mean there is no parking
+        nearby. Hours with no published rate are shown as such rather than guessed at.
       </div>
     </div>
   </div>
@@ -408,7 +442,9 @@ const state = {
   sort: "near",
   stay: { start: null, minutes: 120 },   // start null means "now"
   map: null, markers: new Map(), meMarker: null, lastRows: [],
-  layoutA: true, sheetFraction: 0.46,
+  // Opens showing the verdict, not just the controls that produce it. The map
+  // still gets 44% of a phone screen, and the sheet drags freely from there.
+  layoutA: true, sheetFraction: 0.6,
 };
 
 // Straight-line distance. Labelled as such in the UI - real walking distance
@@ -839,6 +875,8 @@ function render() {
     fee: priceOf(c), live: state.live && state.live.get(c.i),
   }));
 
+  $("#when").innerHTML = whenPanelHtml(rows);
+  wireHourBars($("#when"));
   $("#saved").innerHTML = saved.length
     ? '<div class="where">Saved</div>' + saved.map(cardHtml).join("") : "";
   $("#list").innerHTML = rows.length
@@ -857,9 +895,124 @@ function render() {
       state.fetchedAt.toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit" }) : "");
 }
 
+/* ---- when to go ---------------------------------------------------- */
+
+// The cheapest parking around here, hour by hour, for the stay you asked about.
+//
+// This is the question this app is FOR. Other sites answer "which carpark is
+// nearest / has space / is cheapest right now", and answer it well. None of
+// them answer "wait until five and it costs nothing", even though Singapore's
+// rates step at 8.30am, 5pm and 10.30pm and change again on Sundays.
+//
+// Capped at the nearest 25 carparks: this runs on every pan, and the answer
+// does not improve by pricing the 40th-nearest street too.
+function areaByHour(rows) {
+  const near = rows.slice(0, 25).map((r) => r.c);
+  const day = sgParts(stayStart()).date;
+  const out = [];
+  for (let h = 0; h < 24; h++) {
+    const at = sgDateAt(day, h * 60);
+    let best = null;
+    let who = null;
+    for (const c of near) {
+      const fee = feeForCarpark(c, at, state.stay.minutes);
+      if (fee.total === null) continue;
+      if (best === null || fee.total < best) { best = fee.total; who = c; }
+    }
+    out.push({ hour: h, total: best, carpark: who });
+  }
+  return out;
+}
+
+const priceWord = (v) => (v === 0 ? "free" : money(v));
+
+function whenPanelHtml(rows) {
+  if (!rows.length) return "";
+  const hours = areaByHour(rows);
+  const priced = hours.filter((h) => h.total !== null);
+  if (priced.length < 2) return "";
+
+  const day = sgParts(stayStart()).date;
+  const at = (h) => clockAt(sgDateAt(day, h * 60));
+  const sel = Math.floor(sgParts(stayStart()).minutes / 60);
+  const selRow = hours[sel];
+
+  // "Cheapest at 2am" is true and useless: nobody waits thirteen hours to save
+  // $2.40, and today those hours have already gone. Advice is only worth giving
+  // about hours you can still arrive at, so the verdict looks forward from now,
+  // and on a future date at the whole of that day.
+  const nowParts = sgParts(new Date());
+  const from = day === nowParts.date ? Math.floor(nowParts.minutes / 60) : 0;
+  const reachable = priced.filter((h) => h.hour >= from);
+  if (!reachable.length) return "";
+
+  const max = Math.max.apply(null, reachable.map((h) => h.total));
+  const min = Math.min.apply(null, reachable.map((h) => h.total));
+  const bestHours = reachable.filter((h) => h.total === min).map((h) => h.hour);
+
+  // A run of consecutive cheap hours reads as "after 5pm", which is how anyone
+  // would actually say it - much better than listing eight times.
+  let bestPhrase;
+  const runEnd = bestHours.length && bestHours[bestHours.length - 1] === 23;
+  const contiguous = bestHours.every((h, i) => i === 0 || h === bestHours[i - 1] + 1);
+  if (bestHours.length === 1) bestPhrase = "at " + at(bestHours[0]);
+  else if (contiguous && runEnd) bestPhrase = "after " + at(bestHours[0]);
+  else if (contiguous) bestPhrase = "between " + at(bestHours[0]) + " and " + at(bestHours[bestHours.length - 1] + 1);
+  else bestPhrase = "at " + bestHours.slice(0, 3).map(at).join(", ");
+
+  // Scale against the whole day so the bars stay comparable as hours fall away.
+  const scale = Math.max.apply(null, priced.map((h) => h.total));
+  const bars = hours.map((h) => {
+    const gone = h.hour < from;
+    const cls = gone ? "past"
+      : h.total === null ? "none"
+      : h.hour === sel ? "now"
+      : h.total === min && max > min ? "best"
+      : h.total === 0 ? "free" : "";
+    const height = h.total === null ? 100
+      : scale > 0 ? Math.max(4, Math.round((h.total / scale) * 100)) : 6;
+    const title = at(h.hour) + ": " +
+      (h.total === null ? "no price published" : priceWord(h.total)) + (gone ? " (gone)" : "");
+    return '<button type="button" class="' + cls + '" data-hour="' + h.hour + '"' +
+      (gone ? " disabled" : "") +
+      ' title="' + title + '" aria-label="Arrive ' + title + '">' +
+      '<i style="height:' + height + '%"></i></button>';
+  }).join("");
+
+  let verdict;
+  let sub;
+  if (selRow.total === null) {
+    verdict = "No price published for " + at(sel);
+    sub = "Cheapest " + bestPhrase + ", at <b>" + priceWord(min) + "</b>.";
+  } else if (max === min) {
+    verdict = '<span class="big">' + priceWord(min) + "</span> whenever you arrive";
+    sub = "Parking around here costs the same for the rest of the day.";
+  } else if (selRow.total === min) {
+    verdict = '<span class="big"><em>' + priceWord(min) + "</em></span> arriving " + at(sel);
+    sub = "Nothing later today is cheaper \u2014 it reaches <b>" + money(max) +
+      "</b> at the dearest hour still to come. Cheapest: <b>" + tidy(selRow.carpark.a) + "</b>.";
+  } else {
+    const saving = selRow.total - min;
+    verdict = "Arrive <em>" + bestPhrase + "</em> and pay <span class=\"big\"><em>" +
+      priceWord(min) + "</em></span>";
+    sub = "It is <b>" + priceWord(selRow.total) + "</b> arriving " + at(sel) +
+      ', so you save <span class="save">' + money(saving) + "</span> by waiting. Cheapest then: <b>" +
+      tidy(hours[bestHours[0]].carpark.a) + "</b>.";
+  }
+
+  return '<div class="when-panel">' +
+    '<div class="fee-h">Cheapest parking near here, hour by hour</div>' +
+    '<div class="verdict" style="margin-top:6px">' + verdict + "</div>" +
+    '<div class="verdict-sub">' + sub + "</div>" +
+    '<div class="day-bars">' + bars + "</div>" +
+    '<div class="day-axis"><span>12am</span><span>6am</span><span>12pm</span><span>6pm</span><span>11pm</span></div>' +
+    '<div class="day-note">Tap an hour to price your stay arriving then. Everything below, and every ' +
+    "price on the map, moves with it.</div></div>";
+}
+
 /* ---- what it costs through the day --------------------------------- */
 
-// The question no other Singapore parking site answers. Live availability is
+// Per carpark, the same question the panel above asks for the whole area. Live availability is
 // well covered elsewhere; "come at six instead and it is half the price" is
 // not, and it falls straight out of the rate engine this app already has.
 //
@@ -1031,6 +1184,7 @@ function renderDetail() {
 
   $("#saved").innerHTML = "";
   $("#where").innerHTML = "";
+  $("#when").innerHTML = "";
   $("#scope").hidden = true;
   $("#list").innerHTML =
     '<div class="detail">' +
@@ -1057,9 +1211,13 @@ function renderDetail() {
     "</div>";
   $("#back").addEventListener("click", closeDetail);
 
-  // Tapping an hour prices that arrival - which is also how someone discovers
-  // that the answer to "when should I come" is a time they had not considered.
-  $("#list").querySelectorAll(".day-bars [data-hour]").forEach((b) => {
+  wireHourBars($("#list"));
+}
+
+// Tapping an hour prices that arrival - which is how someone discovers that the
+// answer to "when should I come" is a time they had not considered.
+function wireHourBars(root) {
+  root.querySelectorAll(".day-bars [data-hour]").forEach((b) => {
     b.addEventListener("click", () => {
       setStay({ start: sgDateAt(sgParts(stayStart()).date, +b.dataset.hour * 60) });
     });
