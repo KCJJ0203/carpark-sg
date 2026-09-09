@@ -1,16 +1,38 @@
 # Carpark SG
 
-Parking fees and live availability across Singapore, for **2,929 carparks** — every HDB
-carpark and every URA carpark and on-street bay. Open the map, see what each one costs for the stay
-you have in mind, and how full it is right now.
+**When** parking near you is cheapest — not just where it is. Search a place, say how long you are
+staying, and the first thing the app tells you is the hour to arrive:
+
+> **Arrive after 5.00pm and pay free.**
+> It is $2.40 arriving 1.00pm, so you save $2.40 by waiting.
+
+Then the map, the list and every price on it move with whatever hour you pick. Covers **2,929
+carparks** — every HDB carpark and every URA carpark and on-street bay.
 
 **→ [kcjj0203.github.io/carpark-sg](https://kcjj0203.github.io/carpark-sg/)**
 
 No accounts, no tracking, no server. The page is static; your browser talks to the government's
 open-data APIs directly.
 
+## Why this exists
+
+Singapore already has good parking apps, and they answer *"which carpark near me has a space?"*
+[wheretopark.sg](https://wheretopark.sg) answers it well — live availability, malls, EV chargers,
+walking times, and a per-stay price too.
+
+None of them answer **"what hour should I come?"**, even though rates here step at 8.30am, at 5pm
+and at 10.30pm, and change again on Sundays and public holidays. Two hours at the same Orchard
+street costs $4.80 at lunchtime and nothing at all after five. That is a bigger saving than picking
+a different carpark, and no amount of sorting a list by distance or price will surface it, because
+the list only ever describes one moment.
+
+So the front page here is a verdict about time, and the carparks come second.
+
 ## What it does
 
+- **Tells you when to arrive**, with the cheapest hours you can still reach marked, and the saving
+  named in money. Hours that have already gone are dimmed, not recommended
+- **Tap an hour and the whole app re-prices** — the verdict, the list, and every price pin on the map
 - **A map of what parking costs** — every pin carries the price for your stay and the lots free now
 - **What it will actually cost**, worked out from HDB's published schedule and shown broken down by
   rate band: Central Area, peak hour, night and daily caps, the 15-minute grace period, and the
@@ -142,17 +164,23 @@ field, with chips for the answers people actually give ("in 1 h", "7pm"). Both r
 `12.00pm → 2.00pm`, because the question is "what will I pay", and that depends on when you leave as
 much as when you arrive.
 
-**What it costs through the day.** Open a carpark and there is a bar per hour showing what *your*
-stay would cost arriving at each one, with the cheapest hours marked and hours the carpark cannot be
-priced for drawn hatched rather than as zero. Tap a bar and that becomes your arrival time.
+**Advice has to be reachable.** The first version of the verdict cheerfully recommended arriving at
+2am, because that was genuinely the cheapest hour. It was true and useless: nobody waits thirteen
+hours to save $2.40, and on today's date those hours have already gone. So the verdict only ever
+considers hours you can still arrive at — from the current hour to the end of the day, or the whole
+day if you have picked a future date — and the hours behind you are drawn faint and cannot be clicked.
+A run of cheap hours is phrased the way a person would say it, "after 5.00pm", rather than as a list
+of eight times.
 
-This is the chart the rate engine was always implying and it is the point of the whole project. The
-other Singapore parking sites answer "is there a lot free?" — wheretopark.sg opens with *"Stop
-praying for a lot"* — which is a real question, well covered, and not this one. Nobody answers "come
-at six instead and it costs nothing", even though Singapore's rates change at 8.30am, at 5pm, at
-10.30pm and again on Sundays. The list makes the same point sideways: every row is quoted against
-the cheapest option near it (`+$2.40 vs cheapest nearby`), and the mark disappears entirely when
-every carpark in view charges the same, because then it is not telling you anything.
+**Free is not the same as unknown.** Hours a carpark cannot be priced for are drawn hatched, never
+as zero, and never counted as the cheapest. This is the same rule as everywhere else in the project,
+in the one place where breaking it would look most convincing.
+
+**What it costs through the day, per carpark too.** Open a carpark and the same chart appears for
+that one, so you can see whether *this* street follows the area's pattern. The list makes the point
+sideways: every row is quoted against the cheapest option near it (`+$2.40 vs cheapest nearby`), and
+that mark disappears entirely when every carpark in view charges the same, because then it is not
+telling you anything.
 
 **The search suggests, because the geocoder's first answer is often wrong.** Asked for "orchard
 road", OneMap returns a HOTEL ON BIDEFORD ROAD first and Orchard Road itself second; asked for
@@ -202,6 +230,19 @@ wrote a file. That proved the mechanism worked and said nothing about whether th
 usable. Collection moved to an always-on runner.
 
 **Check the shape of what you collected, not just that collection happened.**
+
+And once more, about a competitor rather than a dataset. Asked whether this app was becoming a
+clone of wheretopark.sg, I fetched their site, read the landing page, and reported that they had
+"no fees, no arrival time, no duration". All three were wrong. Their landing page is a hero and a
+search box; every feature I had ruled out lives one search deeper — the same rail-and-map layout,
+the same Leaflet and OneMap tiles, the same duration presets, the same Cheapest/Nearest sort, the
+same $4.80 for the same carpark. The next build then "differentiated" against a picture that was
+wrong, and moved *toward* them.
+
+It is the identical mistake to the rate watchdog reading an empty 403 page as twelve rate changes:
+a conclusion drawn from a page that did not contain the thing being judged. **Drive the flow before
+describing what a thing does.** The right answer, once the flow had actually been driven, was not to
+look different but to answer a different question.
 
 And then it happened a third time, which is why that sentence is now a script. GitHub's scheduler
 quietly stopped dispatching the workflow — 26 snapshots a day became 3 — while every run that did

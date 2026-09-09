@@ -282,8 +282,108 @@ async function auditDesktop(browser, errors) {
   await ctx.close();
 }
 
-// The feature that makes this a different app from the ones that only show
-// which carparks have space.
+// The app's whole reason to exist: not "which carpark", but "what hour".
+async function auditWhenPanel(browser, errors) {
+  console.log("\n== when to go (the front page) ==");
+  const { ctx, page } = await open(browser, 1600, 1000, errors);
+  await page.evaluate(() => goTo(1.3006, 103.8388, 16));
+  await page.waitForTimeout(900);
+
+  const panel = await page.evaluate(() => {
+    const el = document.querySelector("#when .when-panel");
+    if (!el) return { present: false };
+    const list = document.querySelector("#list");
+    return {
+      present: true,
+      aboveTheList: el.getBoundingClientRect().top < list.getBoundingClientRect().top,
+      verdict: document.querySelector(".verdict").textContent.trim(),
+      sub: document.querySelector(".verdict-sub").textContent.trim(),
+      bars: el.querySelectorAll("[data-hour]").length,
+    };
+  });
+  check("the answer is on the page before any interaction", panel.present);
+  check("it comes before the list of carparks", panel.aboveTheList);
+  check("one bar per hour of the day", panel.bars === 24, String(panel.bars));
+  // The verdict has to say a PRICE, not just gesture at one.
+  check("the verdict quotes a price or says it is free",
+    /\$\d|free/i.test(panel.verdict), panel.verdict);
+  check("it names the carpark or explains the price",
+    panel.sub.length > 15, panel.sub.slice(0, 90));
+
+  // Tapping an hour has to move everything: the verdict, the list AND the map.
+  const before = await page.evaluate(() => ({
+    verdict: document.querySelector(".verdict").textContent.trim(),
+    pins: [...document.querySelectorAll(".pin .lab span")].map((e) => e.textContent).join("|"),
+    prices: [...document.querySelectorAll(".row[data-id] .price")].map((e) => e.textContent).join("|"),
+  }));
+  const cheapHour = await page.evaluate(() => {
+    const best = document.querySelector("#when .day-bars .best");
+    return best ? +best.dataset.hour : null;
+  });
+  check("the cheapest hours are marked on the strip", cheapHour !== null, String(cheapHour));
+  await page.click("#when .day-bars [data-hour='" + cheapHour + "']");
+  await page.waitForTimeout(600);
+  const after = await page.evaluate(() => ({
+    verdict: document.querySelector(".verdict").textContent.trim(),
+    pins: [...document.querySelectorAll(".pin .lab span")].map((e) => e.textContent).join("|"),
+    prices: [...document.querySelectorAll(".row[data-id] .price")].map((e) => e.textContent).join("|"),
+    hour: state.stay.start ? new Date(state.stay.start.getTime() + 8 * 3600000).getUTCHours() : null,
+  }));
+  check("tapping an hour sets that arrival", after.hour === cheapHour,
+    "wanted " + cheapHour + ", got " + after.hour);
+  check("the verdict updates with the hour", after.verdict !== before.verdict,
+    before.verdict.slice(0, 50) + " -> " + after.verdict.slice(0, 50));
+  check("the list re-prices with the hour", after.prices !== before.prices);
+  check("the PRICES ON THE MAP move with the hour", after.pins !== before.pins,
+    before.pins.slice(0, 40) + " -> " + after.pins.slice(0, 40));
+
+  // It must not invent a saving where there is none.
+  const flat = await page.evaluate(() => {
+    const bars = [...document.querySelectorAll("#when .day-bars [data-hour]")];
+    const titles = bars.map((b) => b.getAttribute("title"));
+    const prices = titles.map((t) => t.split(": ")[1]);
+    const distinct = new Set(prices).size;
+    const verdict = document.querySelector(".verdict").textContent;
+    return { distinct: distinct, saysSaving: /save/i.test(document.querySelector(".verdict-sub").textContent),
+             verdict: verdict };
+  });
+  // "Cheapest at 2am" is true and useless, and on today's date already gone.
+  const forward = await page.evaluate(() => {
+    const bars = [...document.querySelectorAll("#when .day-bars [data-hour]")];
+    const nowHour = new Date(Date.now() + 8 * 3600000).getUTCHours();
+    const isToday = !state.stay.start ||
+      new Date(state.stay.start.getTime() + 8 * 3600000).toISOString().slice(0, 10) ===
+      new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    return {
+      isToday: isToday,
+      pastDisabled: bars.filter((b) => +b.dataset.hour < nowHour).every((b) => b.disabled),
+      bestHours: bars.filter((b) => b.classList.contains("best")).map((b) => +b.dataset.hour),
+      nowHour: nowHour,
+      verdict: document.querySelector(".verdict").textContent,
+    };
+  });
+  check("hours that have already gone cannot be chosen",
+    !forward.isToday || forward.pastDisabled);
+  check("the cheapest hour recommended is one you can still arrive at",
+    forward.bestHours.every((h) => h >= forward.nowHour),
+    "now " + forward.nowHour + ", marked " + JSON.stringify(forward.bestHours));
+
+  check("a saving is only claimed when the day actually has one",
+    flat.distinct > 1 || !flat.saysSaving,
+    flat.distinct + " distinct prices, saving claimed: " + flat.saysSaving);
+
+  // This runs on every pan, so it cannot be slow.
+  const ms = await page.evaluate(() => {
+    const t0 = performance.now();
+    for (let i = 0; i < 5; i++) render();
+    return (performance.now() - t0) / 5;
+  });
+  check("a full re-render stays under 150ms", ms < 150, Math.round(ms) + "ms");
+
+  await ctx.close();
+}
+
+// Per carpark, the same question asked in the panel above.
 async function auditPriceChart(browser, errors) {
   console.log("\n== the price-through-the-day chart ==");
   const { ctx, page } = await open(browser, 1600, 1000, errors);
@@ -430,17 +530,28 @@ async function auditPhone(browser, errors) {
   await ready(page);
   const room = await page.evaluate(() => {
     const sheet = document.querySelector("#sheet").getBoundingClientRect();
-    const cards = [...document.querySelectorAll(".row[data-id]")]
-      .filter((c) => c.getBoundingClientRect().top < sheet.bottom - 30);
+    const seen = (el) => {
+      if (!el) return false;
+      const b = el.getBoundingClientRect();
+      return b.top >= sheet.top && b.bottom <= sheet.bottom + 1 && b.height > 0;
+    };
     const q = document.querySelector("#q");
     const keep = q.value;
     q.value = q.placeholder;
     const placeholder = q.scrollWidth <= q.clientWidth + 1;
     q.value = keep;
-    return { visibleCards: cards.length, placeholder: placeholder };
+    return {
+      verdict: seen(document.querySelector(".verdict")),
+      bars: seen(document.querySelector("#when .day-bars")),
+      placeholder: placeholder,
+      mapShare: (sheet.top / innerHeight),
+    };
   });
-  check("a carpark is visible without dragging", room.visibleCards >= 1,
-    room.visibleCards + " cards in view");
+  // The app opens with its answer, not with the controls that produce one.
+  check("the verdict is on screen without dragging", room.verdict);
+  check("the hour bars are on screen without dragging", room.bars);
+  check("the map still gets a usable share of a phone screen",
+    room.mapShare > 0.38, Math.round(room.mapShare * 100) + "%");
   check("the placeholder fits on a phone too", room.placeholder);
 
   await ctx.close();
@@ -488,6 +599,7 @@ async function auditTablet(browser, errors) {
   const errors = [];
   try {
     await auditDesktop(browser, errors);
+    await auditWhenPanel(browser, errors);
     await auditPriceChart(browser, errors);
     await auditPhone(browser, errors);
     await auditTablet(browser, errors);

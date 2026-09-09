@@ -11,7 +11,9 @@
 // the stay, and search suggestions - so a cached index.html is the old app.
 // v5: arrival became a time field instead of a slider, the sort/filter rows were
 // split apart, and the carpark panel gained the through-the-day price chart.
-const VERSION = "v5";
+// v6: the front page is now a verdict about WHEN to park, not a list of
+// carparks, so a cached index.html is a different app.
+const VERSION = "v6";
 const TILES = "tiles-v1";
 const SHELL = [
   "./", "./index.html", "./carparks.min.json", "./holidays.json", "./patterns.json",
