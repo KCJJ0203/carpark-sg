@@ -54,7 +54,7 @@
   #grip { flex: 0 0 auto; padding: 9px 0 5px; cursor: grab; touch-action: none; }
   #grip:active { cursor: grabbing; }
   #grip i { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--line); margin: 0 auto; }
-  #sheetHead { flex: 0 0 auto; padding: 6px 14px 10px; display: flex; flex-direction: column; gap: 8px; }
+  #sheetHead { flex: 0 0 auto; padding: 4px 14px 8px; display: flex; flex-direction: column; gap: 7px; }
   #sheetBody { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 14px 24px; -webkit-overflow-scrolling: touch; }
 
   /* ---- controls ----------------------------------------------------- */
@@ -69,12 +69,6 @@
   }
   .icon-btn { flex: 0 0 auto; padding: 10px 13px; line-height: 1; }
 
-  .stay { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
-  select, #startAt {
-    font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 999px;
-    border: 1px solid var(--line); background: var(--card); color: var(--ink);
-  }
-  #startAt { max-width: 100%; }
 
   .chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
   .chips::-webkit-scrollbar { display: none; }
@@ -90,7 +84,7 @@
   .chip-div { flex: 0 0 auto; width: 1px; background: var(--line); margin: 4px 6px; }
 
   /* ---- list --------------------------------------------------------- */
-  .where { font-size: 13px; color: var(--muted); margin: 12px 0 7px; }
+  .where { font-size: 13px; color: var(--muted); margin: 9px 0 6px; }
   .where strong { color: var(--ink); }
   .row {
     position: relative; width: 100%; text-align: left; display: block;
@@ -172,6 +166,90 @@
   }
   #locate { top: 10px; }
   #layoutBtn { top: 58px; }
+
+  /* ---- search suggestions ------------------------------------------- */
+  .qwrap { position: relative; flex: 1; min-width: 0; }
+  .sugg {
+    position: absolute; z-index: 900; left: 0; right: 0; top: calc(100% + 5px);
+    margin: 0; padding: 5px; list-style: none; max-height: 46vh; overflow-y: auto;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 8px 28px var(--scrim);
+  }
+  .sugg li {
+    padding: 9px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; line-height: 1.35;
+  }
+  .sugg li[aria-selected="true"], .sugg li:hover { background: var(--bg); }
+  .sugg b { display: block; font-weight: 600; }
+  .sugg span { color: var(--muted); font-size: 12px; }
+  .sugg .hint { color: var(--muted); font-size: 12px; cursor: default; padding: 7px 10px; }
+  .sugg .hint:hover { background: none; }
+
+  /* ---- the stay: when you arrive, and for how long -------------------- */
+  .stay { display: flex; flex-direction: column; gap: 7px; }
+  .slab { display: block; }
+  .slab-h {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+    font-size: 13px; color: var(--muted); margin-bottom: 2px;
+  }
+  .slab-h b { color: var(--ink); font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .slab-h em { font-style: normal; font-variant-numeric: tabular-nums; }
+  /* A range input is the one control that lets you scrub arrival time and
+     watch every price on the map move, which is the question this app exists
+     to answer. Styled explicitly because the platform default is inconsistent
+     and, on Windows, tiny. */
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 20px;
+    background: none; cursor: pointer; margin: 0; display: block;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 5px; border-radius: 3px; background: var(--line);
+  }
+  input[type="range"]::-moz-range-track { height: 5px; border-radius: 3px; background: var(--line); }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 19px; height: 19px; margin-top: -7px;
+    border-radius: 50%; background: var(--accent); border: 2px solid var(--card);
+    box-shadow: 0 1px 4px var(--scrim);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 19px; height: 19px; border: 2px solid var(--card); border-radius: 50%;
+    background: var(--accent); box-shadow: 0 1px 4px var(--scrim);
+  }
+  /* :not([hidden]) matters. A bare `display: flex` beats the hidden attribute,
+     and the arrival controls then hold 84px of a phone's sheet open while being
+     invisible - which left no room for the list they are meant to filter. */
+  #laterBox:not([hidden]) { display: flex; flex-direction: column; gap: 6px; }
+  #onDate {
+    font: inherit; font-size: 13px; padding: 4px 9px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  }
+
+  /* ---- desktop: a rail beside the map, not a drawer under it ---------- */
+  /* At 1920px the phone layout letterboxes the map and hides the list in a
+     drawer. On a wide screen the map should be the page and the list should
+     sit next to it, which is also what makes dragging unnecessary there. */
+  @media (min-width: 980px) {
+    #app { flex-direction: row; }
+    #app[data-layout] #map {
+      position: relative; inset: auto; flex: 1 1 auto; height: 100%; min-width: 0;
+    }
+    #app[data-layout] #sheet {
+      position: relative; inset: auto; order: -1; height: 100%;
+      /* Width on its own, NOT inside the flex shorthand: `flex: 0 0 clamp(...)`
+         fails to parse, and the rail then silently falls back to sharing the
+         window - which measured 795px of a 1024px screen. */
+      flex: 0 0 auto; width: clamp(340px, 26vw, 440px);
+      border-radius: 0; border-right: 1px solid var(--line);
+      box-shadow: 2px 0 14px var(--scrim);
+    }
+    #app[data-layout] #grip { display: none; }
+    /* The layout button becomes "give the map the whole window". */
+    #app[data-rail="off"] #sheet { display: none; }
+    #sheetHead { padding: 14px 16px 12px; }
+    #sheetBody { padding: 0 16px 28px; }
+    /* A sideways-scrolling chip row with no visible edge hides half the filters
+       on a screen with room for all of them. */
+    #sheetHead .chips { flex-wrap: wrap; overflow: visible; }
+  }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 </head>
@@ -185,8 +263,12 @@
     <div id="grip" role="separator" aria-label="Drag to resize the list"><i></i></div>
     <div id="sheetHead">
       <form class="bar-row" id="searchForm" autocomplete="off">
-        <input id="q" type="search" placeholder="Search a place, block or postal code"
-               aria-label="Search for a destination">
+        <div class="qwrap">
+          <input id="q" type="search" placeholder="Place, road or postcode"
+                 aria-label="Search for a destination" role="combobox"
+                 aria-expanded="false" aria-controls="sugg" aria-autocomplete="list">
+          <ul class="sugg" id="sugg" role="listbox" aria-label="Search suggestions" hidden></ul>
+        </div>
         <button type="submit" class="icon-btn" id="go" aria-label="Search">→</button>
       </form>
       <div class="stay">
@@ -194,23 +276,37 @@
           <button type="button" class="chip" id="whenNow" aria-pressed="true">Park now</button>
           <button type="button" class="chip" id="whenLater" aria-pressed="false">Later</button>
         </span>
-        <input type="datetime-local" id="startAt" hidden aria-label="Arrival time">
-        <select id="dur" aria-label="How long you are staying">
-          <option value="30">30 min</option>
-          <option value="60">1 hour</option>
-          <option value="120" selected>2 hours</option>
-          <option value="180">3 hours</option>
-          <option value="240">4 hours</option>
-          <option value="360">6 hours</option>
-          <option value="480">8 hours</option>
-          <!-- Deliberately not "all day": these are lengths of stay measured
-               from when you arrive, and a stay labelled "all day" starting at
-               8am would run past closing time at the 241 carparks that shut at
-               10.30pm - correctly reported as closed, but a confusing answer to
-               a question the label invited. The daily cap still shows itself
-               here, because 12 hours costs more than $12. -->
-          <option value="720">12 hours</option>
-        </select>
+
+        <div id="laterBox" hidden>
+          <div class="bar-row">
+            <span class="chips" role="group" aria-label="Which day">
+              <button type="button" class="chip" data-day="0" aria-pressed="true">Today</button>
+              <button type="button" class="chip" data-day="1" aria-pressed="false">Tomorrow</button>
+            </span>
+            <input type="date" id="onDate" aria-label="Another date">
+          </div>
+          <label class="slab">
+            <span class="slab-h"><span>Arrive</span><b id="startLabel">—</b></span>
+            <!-- Quarter hours across the whole day. Dragging this is the fastest
+                 way to answer "when is it cheaper to come?", because every price
+                 on the map and in the list moves with it. -->
+            <input type="range" id="startTime" min="0" max="1425" step="15" value="0"
+                   aria-label="Arrival time">
+          </label>
+        </div>
+
+        <label class="slab">
+          <span class="slab-h"><span>Stay for</span><b id="durLabel">2 hours</b></span>
+          <!-- An index into DURATIONS, not raw minutes: the useful resolution is
+               fifteen minutes for a short stay and an hour for a long one, and a
+               linear minute scale gives neither. Capped at 12 hours on purpose -
+               these are lengths measured from arrival, and anything longer runs
+               past closing time at the 241 carparks that shut at 10.30pm. The
+               daily cap still shows itself, because 12 hours costs more than $12. -->
+          <input type="range" id="dur" min="0" max="14" step="1" value="5"
+                 aria-label="How long you are staying">
+          <span class="chips" id="durPresets" role="group" aria-label="Common lengths of stay"></span>
+        </label>
       </div>
       <div class="chips" id="controls"></div>
     </div>
@@ -280,6 +376,24 @@ function forEngine(c) {
 // A record that points at a rate table brought its prices with it; one that
 // does not is priced from HDB's transcribed schedule.
 const hasOwnRates = (c) => c.r !== undefined;
+
+// Fifteen-minute resolution for a short stay, an hour for a long one. A linear
+// minute slider gives neither: 15 and 30 minutes are a real difference to a
+// driver (the HDB grace period sits between them) and 9 versus 10 hours is not.
+const DURATIONS = [15, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 420, 480, 600, 720];
+const DUR_PRESETS = [30, 60, 120, 240];
+
+function durationLabel(mins) {
+  const h = Math.floor(mins / 60), m = mins % 60;
+  if (!h) return m + " min";
+  const hs = h + (h === 1 ? " hour" : " hours");
+  return m ? hs + " " + m + " min" : hs;
+}
+
+const SG_TIME = { hour: "numeric", minute: "2-digit", timeZone: "Asia/Singapore" };
+const clockAt = (d) => d.toLocaleTimeString("en-SG", SG_TIME).toLowerCase().replace(/\s/g, "");
+const dayAt = (d) => d.toLocaleDateString("en-SG",
+  { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Singapore" });
 
 const stayStart = () => state.stay.start ? new Date(state.stay.start) : new Date();
 const priceOf = (c) => (hasOwnRates(c) ? U : R)
@@ -458,6 +572,23 @@ function feeText(fee) {
 
 /* ---- map ----------------------------------------------------------- */
 
+// Below 980px the sheet floats over the bottom of a full-bleed map, so the
+// map's own centre can sit behind it. Anchoring the list to the centre of the
+// VISIBLE strip is what stops "cheapest near the middle of the map" describing
+// somewhere the user cannot see - and it is why dragging the sheet no longer
+// throws away the place they were looking at.
+function hiddenMapPixels() {
+  if (!state.map || !state.layoutA || window.innerWidth >= 980) return 0;
+  const sheet = $("#sheet").getBoundingClientRect().height;
+  return Math.min(sheet, state.map.getSize().y * 0.75);
+}
+
+function visibleCentre() {
+  const size = state.map.getSize();
+  const c = state.map.containerPointToLatLng([size.x / 2, (size.y - hiddenMapPixels()) / 2]);
+  return { lat: c.lat, lng: c.lng };
+}
+
 function initMap() {
   const map = L.map("map", { zoomControl: false })
     .setView([state.centre.lat, state.centre.lng], 16);
@@ -476,8 +607,7 @@ function initMap() {
   }).addTo(map);
 
   map.on("moveend", () => {
-    const c = map.getCenter();
-    state.centre = { lat: c.lat, lng: c.lng };
+    state.centre = visibleCentre();
     if (!state.selected) render();
   });
   map.on("zoomend", relayoutPins);
@@ -651,7 +781,10 @@ function openDetail(id) {
   renderDetail();
   drawPins(state.lastRows);
   $("#sheetBody").scrollTop = 0;
-  if (state.layoutA && state.sheetFraction < 0.6) setSheet(0.7);
+  // Only grow the sheet when it is too small to show the carpark at all. It
+  // used to jump to 70% from anything under 60%, which moved the map out from
+  // under whoever had just carefully positioned it.
+  if (state.layoutA && window.innerWidth < 980 && state.sheetFraction < 0.34) setSheet(0.55);
 }
 
 function closeDetail() {
@@ -796,7 +929,7 @@ function initSheetDrag() {
   let startY = 0, startF = 0.46, dragging = false;
 
   grip.addEventListener("pointerdown", (e) => {
-    if (!state.layoutA) return;
+    if (!state.layoutA || window.innerWidth >= 980) return;
     dragging = true; startY = e.clientY; startF = state.sheetFraction;
     grip.setPointerCapture(e.pointerId);
   });
@@ -806,22 +939,144 @@ function initSheetDrag() {
   const end = () => {
     if (!dragging) return;
     dragging = false;
-    // Snap, so the sheet always comes to rest somewhere deliberate.
-    const f = state.sheetFraction;
-    setSheet([0.22, 0.46, 0.88].reduce((a, b) => Math.abs(b - f) < Math.abs(a - f) ? b : a));
+    // No snapping. Snapping to three heights meant the sheet never came to rest
+    // where it was put, and the map behind it jumped to a size nobody chose.
+    // What the drag DOES have to do is tell the list where "here" now is: the
+    // visible strip of map has changed, so the place the list is describing has
+    // too, and leaving it stale is how you lose the spot you were looking at.
+    state.centre = visibleCentre();
+    state.map.invalidateSize({ pan: false });
+    if (state.selected) relayoutPins(); else render();
   };
   grip.addEventListener("pointerup", end);
   grip.addEventListener("pointercancel", end);
 }
 
+const isWide = () => window.innerWidth >= 980;
+
 function setLayout(which) {
   state.layoutA = which === "a";
   $("#app").dataset.layout = which;
-  $("#layoutBtn").textContent = state.layoutA ? "▤" : "▣";
-  $("#layoutBtn").title = state.layoutA ? "Switch to map above the list" : "Switch to a full-screen map";
   try { localStorage.setItem(LAYOUT_KEY, which); } catch (e) {}
   if (state.layoutA) setSheet(state.sheetFraction);
+  syncChrome();
   if (state.map) setTimeout(() => { state.map.invalidateSize({ pan: false }); relayoutPins(); }, 80);
+}
+
+// The one button on the map means different things at different widths, so its
+// label has to be decided in one place rather than assumed at click time.
+function syncChrome() {
+  const app = $("#app");
+  if (!app.dataset.rail) app.dataset.rail = "on";
+  const btn = $("#layoutBtn");
+  if (isWide()) {
+    const on = app.dataset.rail !== "off";
+    btn.textContent = on ? "▣" : "▤";
+    btn.title = on ? "Hide the list and use the whole window for the map" : "Show the list";
+  } else {
+    btn.textContent = state.layoutA ? "▤" : "▣";
+    btn.title = state.layoutA ? "Switch to map above the list" : "Switch to a full-screen map";
+  }
+}
+
+/* ---- the stay ------------------------------------------------------ */
+
+// Singapore-local Y-M-D for a Date, and the reverse. The app never uses the
+// browser's timezone for anything a driver sees, because a phone set to another
+// zone would otherwise price the wrong half hour.
+function sgParts(d) {
+  const sg = new Date(d.getTime() + 8 * 3600 * 1000);
+  return { date: sg.toISOString().slice(0, 10), minutes: sg.getUTCHours() * 60 + sg.getUTCMinutes() };
+}
+function sgDateAt(isoDate, minutes) {
+  return new Date(Date.parse(isoDate + "T00:00:00Z") - 8 * 3600 * 1000 + minutes * 60000);
+}
+const addDays = (isoDate, k) =>
+  new Date(Date.parse(isoDate + "T00:00:00Z") + k * 86400000).toISOString().slice(0, 10);
+
+function stayEnd() {
+  return new Date(stayStart().getTime() + state.stay.minutes * 60000);
+}
+
+// One place that redraws every label on the stay panel, so the readout can
+// never disagree with what is actually being priced.
+function paintStay() {
+  const mins = state.stay.minutes;
+  $("#durLabel").textContent = durationLabel(mins);
+  $("#dur").value = String(Math.max(0, DURATIONS.indexOf(mins)));
+  $("#durPresets").querySelectorAll("[data-mins]").forEach((b) =>
+    b.setAttribute("aria-pressed", String(+b.dataset.mins === mins)));
+
+  const later = !!state.stay.start;
+  $("#whenNow").setAttribute("aria-pressed", String(!later));
+  $("#whenLater").setAttribute("aria-pressed", String(later));
+  $("#laterBox").hidden = !later;
+
+  // "Arrive 11.00am, leave 1.00pm" answers the question the driver actually
+  // has, which a bare duration does not.
+  const start = stayStart();
+  $("#startLabel").textContent = later
+    ? dayAt(start) + ", " + clockAt(start) + " → " + clockAt(stayEnd())
+    : clockAt(start) + " → " + clockAt(stayEnd());
+
+  if (later) {
+    const p = sgParts(start);
+    $("#startTime").value = String(Math.round(p.minutes / 15) * 15);
+    $("#onDate").value = p.date;
+    const today = sgParts(new Date()).date;
+    $("#laterBox").querySelectorAll("[data-day]").forEach((b) =>
+      b.setAttribute("aria-pressed", String(addDays(today, +b.dataset.day) === p.date)));
+  }
+}
+
+function setStay(patch) {
+  Object.assign(state.stay, patch);
+  paintStay();
+  // Prices move with the stay, so the open carpark has to re-price too.
+  if (state.selected) renderDetail(); else render();
+}
+
+function initStayControls() {
+  $("#durPresets").innerHTML = DUR_PRESETS.map((m) =>
+    '<button type="button" class="chip" data-mins="' + m + '" aria-pressed="false">' +
+    durationLabel(m) + "</button>").join("");
+  $("#durPresets").querySelectorAll("[data-mins]").forEach((b) => {
+    // The presets live inside the slider's <label>, so a click would otherwise
+    // also land on the range input and drag it.
+    b.addEventListener("click", (e) => { e.preventDefault(); setStay({ minutes: +b.dataset.mins }); });
+  });
+
+  $("#dur").addEventListener("input", (e) => {
+    setStay({ minutes: DURATIONS[Math.max(0, Math.min(DURATIONS.length - 1, +e.target.value))] });
+  });
+
+  $("#whenNow").addEventListener("click", () => setStay({ start: null }));
+  $("#whenLater").addEventListener("click", () => {
+    if (state.stay.start) return;
+    // The next whole hour, in Singapore time - the answer to "later" more
+    // often than any other moment.
+    const p = sgParts(new Date(Date.now() + 3600000));
+    setStay({ start: sgDateAt(p.date, Math.floor(p.minutes / 60) * 60) });
+  });
+
+  $("#startTime").addEventListener("input", (e) => {
+    const p = sgParts(stayStart());
+    setStay({ start: sgDateAt(p.date, +e.target.value) });
+  });
+
+  $("#laterBox").querySelectorAll("[data-day]").forEach((b) => {
+    b.addEventListener("click", () => {
+      const p = sgParts(stayStart());
+      setStay({ start: sgDateAt(addDays(sgParts(new Date()).date, +b.dataset.day), p.minutes) });
+    });
+  });
+
+  $("#onDate").addEventListener("change", (e) => {
+    if (!e.target.value) return;
+    setStay({ start: sgDateAt(e.target.value, sgParts(stayStart()).minutes) });
+  });
+
+  paintStay();
 }
 
 /* ---- controls ------------------------------------------------------ */
@@ -855,40 +1110,24 @@ function initControls() {
     });
   });
 
-  $("#dur").addEventListener("change", (e) => {
-    state.stay.minutes = parseInt(e.target.value, 10);
-    render();
-  });
+  initStayControls();
 
-  const now = $("#whenNow"), later = $("#whenLater"), at = $("#startAt");
-  now.addEventListener("click", () => {
-    state.stay.start = null;
-    now.setAttribute("aria-pressed", "true");
-    later.setAttribute("aria-pressed", "false");
-    at.hidden = true;
-    render();
-  });
-  later.addEventListener("click", () => {
-    now.setAttribute("aria-pressed", "false");
-    later.setAttribute("aria-pressed", "true");
-    at.hidden = false;
-    if (!at.value) {
-      // The next whole hour, in Singapore time - the answer to "later" more
-      // often than any other moment.
-      const d = new Date(Date.now() + 8 * 3600 * 1000 + 3600 * 1000);
-      d.setUTCMinutes(0, 0, 0);
-      at.value = d.toISOString().slice(0, 16);
+  $("#layoutBtn").addEventListener("click", () => {
+    // On a wide screen the two stacked layouts are meaningless - the rail is
+    // already beside the map - so the button gives the map the whole window
+    // instead of shuffling a sheet that is not there.
+    if (isWide()) {
+      $("#app").dataset.rail = $("#app").dataset.rail === "off" ? "on" : "off";
+      syncChrome();
+      setTimeout(() => {
+        state.map.invalidateSize({ pan: false });
+        state.centre = visibleCentre();
+        if (state.selected) relayoutPins(); else render();
+      }, 60);
+      return;
     }
-    state.stay.start = new Date(at.value + "+08:00");
-    render();
+    setLayout(state.layoutA ? "b" : "a");
   });
-  at.addEventListener("change", () => {
-    if (!at.value) return;
-    state.stay.start = new Date(at.value + "+08:00");
-    render();
-  });
-
-  $("#layoutBtn").addEventListener("click", () => setLayout(state.layoutA ? "b" : "a"));
 
   $("#locate").addEventListener("click", async () => {
     const btn = $("#locate");
@@ -919,12 +1158,23 @@ function fail(message) {
   $("#list").innerHTML = '<div class="note err">' + message + "</div>";
 }
 
-function goTo(lat, lng) {
+// Centre the map on a place. In layout A the sheet covers the bottom of the
+// map, so the place is nudged up into the visible strip - otherwise the thing
+// you just searched for lands behind the list.
+function goTo(lat, lng, zoom) {
   state.selected = null;
-  state.centre = { lat, lng };
-  state.map.setView([lat, lng], 17);
+  closeSuggestions();
+  state.map.setView([lat, lng], zoom || 17, { animate: false });
+  const hidden = hiddenMapPixels();
+  if (hidden > 0) state.map.panBy([0, hidden / 2], { animate: false });
+  state.centre = { lat: lat, lng: lng };
   render();
 }
+
+// A road is an area, not a point. Orchard Road is two kilometres long, so
+// dropping someone at zoom 17 shows one shopfront of it - no use at all to
+// "I am going to Orchard, where is parking cheap?".
+const zoomFor = (r) => (isRoad(r) ? 16 : 17);
 
 // More than one place matches, and the ranking cannot be trusted - so ask
 // rather than guess. Showing the road name is what distinguishes "Jurong Point"
@@ -940,7 +1190,7 @@ function offerChoices(results) {
   $("#list").querySelectorAll(".choice").forEach((b) => {
     b.addEventListener("click", () => {
       const r = results[+b.dataset.i];
-      goTo(parseFloat(r.LATITUDE), parseFloat(r.LONGITUDE));
+      goTo(parseFloat(r.LATITUDE), parseFloat(r.LONGITUDE), zoomFor(r));
     });
   });
 }
@@ -948,35 +1198,162 @@ function offerChoices(results) {
 // Destination search, via OneMap - the government's own geocoder, CORS-open and
 // no key required. Geolocation only helps once you have arrived; planning a
 // trip means asking about somewhere you are not.
+//
+// Suggestions rather than a bare submit, because OneMap's own ranking cannot be
+// trusted: "Jurong Point" returns a CLINIC IN TAMAN JURONG first, kilometres
+// from the mall, with the mall itself third. Offering the candidates with their
+// road names lets the person who knows which one they meant say so - and it is
+// what makes a vague area search work too, since the road itself is one of the
+// answers on offer.
+const suggest = { items: [], active: -1, seq: 0, timer: null };
+
+// OneMap answers 429 when asked too often, and its error page is HTML, so a
+// reply that is not JSON has to fail as "unavailable" and not as a crash. The
+// cache is here for the same reason: backspacing a word should not re-ask.
+const placeCache = new Map();
+
+async function fetchPlaces(text) {
+  const key = text.toLowerCase();
+  if (placeCache.has(key)) return placeCache.get(key);
+  const url = "https://www.onemap.gov.sg/api/common/elastic/search?searchVal=" +
+    encodeURIComponent(text) + "&returnGeom=Y&getAddrDetails=Y&pageNum=1";
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("onemap " + res.status);
+  const j = await res.json();
+  const out = rankPlaces((j.results || []).filter((r) => r.LATITUDE && r.LONGITUDE), text);
+  if (placeCache.size > 60) placeCache.clear();
+  placeCache.set(key, out);
+  return out;
+}
+
+// A road IS a place to park near, and OneMap does not treat it as one: asked
+// for "orchard road" it answers with a HOTEL ON BIDEFORD ROAD first and puts
+// Orchard Road itself second. Someone who typed the name of a road wants the
+// road, so an exact name match is floated to the top - the same preference the
+// submit path has always applied, just made visible in the list.
+function isRoad(r) {
+  const name = String(r.SEARCHVAL || "").trim().toUpperCase();
+  return !!name && name === String(r.ROAD_NAME || "").trim().toUpperCase();
+}
+
+function rankPlaces(results, text) {
+  const wanted = text.trim().toUpperCase();
+  const score = (r) => {
+    const name = String(r.SEARCHVAL || "").trim().toUpperCase();
+    if (name === wanted) return isRoad(r) ? 0 : 1;
+    return isRoad(r) && name.indexOf(wanted) === 0 ? 2 : 3;
+  };
+  return results
+    .map((r, i) => ({ r: r, s: score(r), i: i }))
+    .sort((a, b) => a.s - b.s || a.i - b.i)
+    .map((x) => x.r);
+}
+
+// What distinguishes one hit from another. "Road" is called out because it is
+// the answer to a different question - park anywhere along here, rather than at
+// this exact door - and the map zooms out for it.
+const placeSub = (r) => (isRoad(r)
+  ? ["Road \u00b7 park anywhere along it"]
+  : [r.BLK_NO && r.BLK_NO !== "NIL" ? "Blk " + r.BLK_NO : "", r.ROAD_NAME,
+     r.POSTAL && r.POSTAL !== "NIL" ? "S" + r.POSTAL : ""]
+).filter((x) => x && x !== "NIL").join(" \u00b7 ");
+
+function closeSuggestions() {
+  suggest.items = [];
+  suggest.active = -1;
+  const box = $("#sugg");
+  box.hidden = true;
+  box.innerHTML = "";
+  $("#q").setAttribute("aria-expanded", "false");
+}
+
+function paintSuggestions(note) {
+  const box = $("#sugg");
+  if (!suggest.items.length && !note) return closeSuggestions();
+  box.innerHTML = note
+    ? '<li class="hint">' + note + "</li>"
+    : suggest.items.map((r, i) =>
+        '<li role="option" data-i="' + i + '" aria-selected="' + (i === suggest.active) + '">' +
+        "<b>" + r.SEARCHVAL + "</b><span>" + placeSub(r) + "</span></li>").join("");
+  box.hidden = false;
+  $("#q").setAttribute("aria-expanded", "true");
+  box.querySelectorAll("[data-i]").forEach((li) => {
+    // pointerdown, not click: the input's blur would close the list first.
+    li.addEventListener("pointerdown", (e) => { e.preventDefault(); pickPlace(+li.dataset.i); });
+  });
+}
+
+function pickPlace(i) {
+  const r = suggest.items[i];
+  if (!r) return;
+  $("#q").value = r.SEARCHVAL;
+  $("#q").blur();
+  goTo(parseFloat(r.LATITUDE), parseFloat(r.LONGITUDE), zoomFor(r));
+}
+
 function initSearch() {
+  const q = $("#q");
+
+  q.addEventListener("input", () => {
+    clearTimeout(suggest.timer);
+    const text = q.value.trim();
+    if (text.length < 2) return closeSuggestions();
+    // Debounced, and stamped: a slow reply for "orch" must never overwrite the
+    // list already showing for "orchard road".
+    suggest.timer = setTimeout(async () => {
+      const seq = ++suggest.seq;
+      try {
+        const results = await fetchPlaces(text);
+        if (seq !== suggest.seq) return;
+        suggest.items = results.slice(0, 7);
+        suggest.active = -1;
+        paintSuggestions(results.length ? null : "Nothing found for \u201c" + text + "\u201d");
+      } catch (e) {
+        if (seq === suggest.seq) paintSuggestions("Search is unavailable right now");
+      }
+    }, 300);
+  });
+
+  q.addEventListener("keydown", (e) => {
+    if ($("#sugg").hidden || !suggest.items.length) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const last = suggest.items.length - 1;
+      if (e.key === "ArrowDown") suggest.active = suggest.active >= last ? 0 : suggest.active + 1;
+      else suggest.active = suggest.active <= 0 ? last : suggest.active - 1;
+      paintSuggestions();
+    } else if (e.key === "Enter" && suggest.active >= 0) {
+      e.preventDefault();
+      pickPlace(suggest.active);
+    } else if (e.key === "Escape") {
+      closeSuggestions();
+    }
+  });
+
+  q.addEventListener("blur", () => setTimeout(closeSuggestions, 120));
+
   $("#searchForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const q = $("#q").value.trim();
-    if (!q) return;
+    const text = q.value.trim();
+    if (!text) return;
+    if (suggest.active >= 0) return pickPlace(suggest.active);
     const go = $("#go");
     go.disabled = true;
     try {
-      const url = "https://www.onemap.gov.sg/api/common/elastic/search?searchVal=" +
-        encodeURIComponent(q) + "&returnGeom=Y&getAddrDetails=Y&pageNum=1";
-      const j = await fetch(url).then((r) => r.json());
-      const results = j.results || [];
+      const results = await fetchPlaces(text);
       if (!results.length) {
-        fail("Nothing found for “" + q + "”. Try a block number, building name or postal code.");
+        fail("Nothing found for \u201c" + text + "\u201d. Try a block number, road, building name or postal code.");
         return;
       }
-      // OneMap's own ranking is not reliable enough to pick from blindly:
-      // searching "Jurong Point" returns a CLINIC IN TAMAN JURONG first, several
-      // kilometres from the mall, with the mall itself third. Silently taking the
-      // top hit would show carparks near somewhere the user never asked about,
-      // and the list would look perfectly plausible.
-      const exact = results.find((r) => r.SEARCHVAL.trim().toUpperCase() === q.toUpperCase());
+      const exact = results.find((r) => r.SEARCHVAL.trim().toUpperCase() === text.toUpperCase());
       const one = exact || (results.length === 1 ? results[0] : null);
-      if (one) goTo(parseFloat(one.LATITUDE), parseFloat(one.LONGITUDE));
+      if (one) goTo(parseFloat(one.LATITUDE), parseFloat(one.LONGITUDE), zoomFor(one));
       else offerChoices(results.slice(0, 6));
     } catch (err) {
       fail("Search is unavailable right now. Try again in a moment.");
     } finally {
       go.disabled = false;
+      closeSuggestions();
     }
   });
 }
@@ -991,6 +1368,20 @@ function initSearch() {
   initControls();
   initSearch();
   initMap();
+
+  // Crossing 980px swaps a drawer for a rail, which changes how much map is
+  // visible and therefore what "near here" means.
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      syncChrome();
+      if (!state.map) return;
+      state.map.invalidateSize({ pan: false });
+      state.centre = visibleCentre();
+      if (state.selected) relayoutPins(); else render();
+    }, 150);
+  });
 
   try {
     await loadStatic();

@@ -7,7 +7,9 @@
 
 // v3: URA carparks and their rate tables joined the payload, so every cached
 // copy of carparks.min.json and rates.js is now short by 657 carparks.
-const VERSION = "v3";
+// v4: the page was rebuilt - a rail beside the map on wide screens, sliders for
+// the stay, and search suggestions - so a cached index.html is the old app.
+const VERSION = "v4";
 const TILES = "tiles-v1";
 const SHELL = [
   "./", "./index.html", "./carparks.min.json", "./holidays.json", "./patterns.json",
