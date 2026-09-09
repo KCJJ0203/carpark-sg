@@ -15,7 +15,9 @@
 // carparks, so a cached index.html is a different app.
 // v7: "find me" now explains a blocked permission instead of failing silently,
 // and the hide-list button moved to the edge of the list it hides.
-const VERSION = "v7";
+// v8: the panel now switches to "how full is it usually" where every carpark
+// charges the same, which is most of the island.
+const VERSION = "v8";
 const TILES = "tiles-v1";
 const SHELL = [
   "./", "./index.html", "./carparks.min.json", "./holidays.json", "./patterns.json",

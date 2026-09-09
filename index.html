@@ -553,10 +553,14 @@ function bucketFor(now, isPH) {
   return type * 24 + sg.getUTCHours();
 }
 
-function typicalNow(id, now) {
+// How full this carpark usually is at a given MOMENT, from history we collected
+// ourselves. Only HDB has this: URA reports how many lots are free and never
+// how many exist, so there is no proportion to learn and 657 carparks have no
+// pattern at all. Absent means "we do not know", never "empty".
+function typicalAt(id, when) {
   const p = state.patterns[id];
   if (!p) return null;
-  const ch = p[bucketFor(now, isHoliday(sgDate(now)))];
+  const ch = p[bucketFor(when, isHoliday(sgDate(when)))];
   if (!ch || ch === "-") return null;
   return Number(ch) / 9;
 }
@@ -934,31 +938,109 @@ function render() {
 //
 // Capped at the nearest 25 carparks: this runs on every pan, and the answer
 // does not improve by pricing the 40th-nearest street too.
+// Below this, "cheapest" is a carpark you will probably drive away from.
+const LIKELY_FULL = 0.15;
+const LIKELY_ROOM = 0.25;
+
+// How many of the nearest carparks to describe. The panel claims to speak for
+// "around here", so it has to be nearest-first whatever order the list happens
+// to be sorted in.
+const AREA_N = 25;
+const SPACE_N = 10;
+
+const median = (xs) => {
+  const v = xs.slice().sort((a, b) => a - b);
+  if (!v.length) return null;
+  const m = v.length >> 1;
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+};
+
 function areaByHour(rows) {
-  const near = rows.slice(0, 25).map((r) => r.c);
+  const byDistance = rows.slice().sort((a, b) => a.d - b.d);
+  const near = byDistance.slice(0, AREA_N).map((r) => r.c);
+  const nearest = byDistance.slice(0, SPACE_N).map((r) => r.c);
   const day = sgParts(stayStart()).date;
   const out = [];
   for (let h = 0; h < 24; h++) {
     const at = sgDateAt(day, h * 60);
     let best = null;
     let who = null;
+    // The cheapest carpark that history says usually has room. Cheap and full
+    // is not an answer, and this is the one thing here built on data we
+    // collected ourselves rather than on anybody's API.
+    let roomy = null;
+    let roomyWho = null;
+    let roomyFree = null;
     for (const c of near) {
       const fee = feeForCarpark(c, at, state.stay.minutes);
       if (fee.total === null) continue;
       if (best === null || fee.total < best) { best = fee.total; who = c; }
+      const free = typicalAt(c.i, at);
+      if (free !== null && free >= LIKELY_ROOM && (roomy === null || fee.total < roomy)) {
+        roomy = fee.total; roomyWho = c; roomyFree = free;
+      }
     }
-    out.push({ hour: h, total: best, carpark: who });
+    // How full parking around here usually is - the MEDIAN of the nearest few,
+    // not the emptiest of twenty-five. The emptiest is always some large
+    // carpark sitting near 90%, which washes the daily cycle out completely and
+    // describes one carpark rather than the area. The median moves the way the
+    // neighbourhood actually does: full when everyone is home, empty midday.
+    const knownNear = nearest.map((c) => typicalAt(c.i, at)).filter((v) => v !== null);
+    const space = knownNear.length >= 3 ? median(knownNear) : null;
+    // The emptiest one is still worth naming, because it is where to actually go.
+    let spaceWho = null;
+    let spaceBest = null;
+    for (const c of near) {
+      const free = typicalAt(c.i, at);
+      if (free === null) continue;
+      if (spaceBest === null || free > spaceBest) { spaceBest = free; spaceWho = c; }
+    }
+    out.push({
+      hour: h, total: best, carpark: who,
+      free: who ? typicalAt(who.i, at) : null,
+      roomy: roomyWho ? { total: roomy, carpark: roomyWho, free: roomyFree } : null,
+      space: space, spaceCarpark: spaceWho, spaceCarparkFree: spaceBest,
+    });
   }
   return out;
 }
 
 const priceWord = (v) => (v === 0 ? "free" : money(v));
+const pct = (v) => Math.round(v * 100) + "%";
+
+// What our own history says about finding a space there at that hour - and, if
+// the cheapest one is usually packed, the cheapest one that is not.
+//
+// Silent when there is nothing to say. 657 URA carparks have no pattern at all
+// (URA never reports a total), and a bucket with too few readings is left blank
+// on purpose, so guessing here would undo the whole point of collecting.
+function spaceNote(row, whenLabel) {
+  if (!row || !row.carpark) return ".";
+  if (row.free === null) return ".";
+  if (row.free >= LIKELY_FULL) {
+    return ", usually <b>" + pct(row.free) + " free</b> at " + whenLabel + ".";
+  }
+  let out = ", but that one is usually only <b>" + pct(row.free) + " free</b> at " + whenLabel;
+  if (row.roomy && row.roomy.carpark.i !== row.carpark.i) {
+    out += ". <b>" + tidy(row.roomy.carpark.a) + "</b> at " + priceWord(row.roomy.total) +
+      " is usually " + pct(row.roomy.free) + " free";
+  }
+  return out + ".";
+}
 
 function whenPanelHtml(rows) {
   if (!rows.length) return "";
   const hours = areaByHour(rows);
   const priced = hours.filter((h) => h.total !== null);
   if (priced.length < 2) return "";
+
+  // HDB charges the same rate all day, which is most of Singapore, so in the
+  // heartlands "when is it cheapest" has no answer at all. "When can I actually
+  // get a space" does - and that is the question our own three weeks of
+  // readings can answer and nobody else's API can.
+  const totals = new Set(priced.map((h) => h.total));
+  const known = hours.filter((h) => h.space !== null);
+  if (totals.size === 1 && known.length >= 6) return spacePanelHtml(hours, priced[0].total);
 
   const day = sgParts(stayStart()).date;
   const at = (h) => clockAt(sgDateAt(day, h * 60));
@@ -1018,14 +1100,16 @@ function whenPanelHtml(rows) {
   } else if (selRow.total === min) {
     verdict = '<span class="big"><em>' + priceWord(min) + "</em></span> arriving " + at(sel);
     sub = "Nothing later today is cheaper \u2014 it reaches <b>" + money(max) +
-      "</b> at the dearest hour still to come. Cheapest: <b>" + tidy(selRow.carpark.a) + "</b>.";
+      "</b> at the dearest hour still to come. Cheapest: <b>" + tidy(selRow.carpark.a) + "</b>" +
+      spaceNote(selRow, at(sel));
   } else {
     const saving = selRow.total - min;
+    const bestRow = hours[bestHours[0]];
     verdict = "Arrive <em>" + bestPhrase + "</em> and pay <span class=\"big\"><em>" +
       priceWord(min) + "</em></span>";
     sub = "It is <b>" + priceWord(selRow.total) + "</b> arriving " + at(sel) +
       ', so you save <span class="save">' + money(saving) + "</span> by waiting. Cheapest then: <b>" +
-      tidy(hours[bestHours[0]].carpark.a) + "</b>.";
+      tidy(bestRow.carpark.a) + "</b>" + spaceNote(bestRow, at(bestHours[0]));
   }
 
   return '<div class="when-panel">' +
@@ -1036,6 +1120,74 @@ function whenPanelHtml(rows) {
     '<div class="day-axis"><span>12am</span><span>6am</span><span>12pm</span><span>6pm</span><span>11pm</span></div>' +
     '<div class="day-note">Tap an hour to price your stay arriving then. Everything below, and every ' +
     "price on the map, moves with it.</div></div>";
+}
+
+// Where every carpark charges the same, the bars stop being about money and
+// start being about whether you will get in. Saying so in the heading matters:
+// a chart that silently changes meaning is worse than no chart.
+function spacePanelHtml(hours, flatPrice) {
+  const day = sgParts(stayStart()).date;
+  const at = (h) => clockAt(sgDateAt(day, h * 60));
+  const sel = Math.floor(sgParts(stayStart()).minutes / 60);
+  const nowParts = sgParts(new Date());
+  const from = day === nowParts.date ? Math.floor(nowParts.minutes / 60) : 0;
+
+  const reachable = hours.filter((h) => h.hour >= from && h.space !== null);
+  if (!reachable.length) return "";
+  const best = Math.max.apply(null, reachable.map((h) => h.space));
+  const bestHours = reachable.filter((h) => h.space === best).map((h) => h.hour);
+  const selRow = hours[sel];
+
+  const contiguous = bestHours.every((h, i) => i === 0 || h === bestHours[i - 1] + 1);
+  const bestPhrase = bestHours.length === 1 ? "at " + at(bestHours[0])
+    : contiguous && bestHours[bestHours.length - 1] === 23 ? "after " + at(bestHours[0])
+    : contiguous ? "between " + at(bestHours[0]) + " and " + at(bestHours[bestHours.length - 1] + 1)
+    : "at " + bestHours.slice(0, 3).map(at).join(", ");
+
+  const bars = hours.map((h) => {
+    const gone = h.hour < from;
+    const cls = gone ? "past"
+      : h.space === null ? "none"
+      : h.hour === sel ? "now"
+      : h.space === best ? "best" : "";
+    const height = h.space === null ? 100 : Math.max(4, Math.round(h.space * 100));
+    const title = at(h.hour) + ": " +
+      (h.space === null ? "no history yet" : pct(h.space) + " of lots usually free") +
+      (gone ? " (gone)" : "");
+    return '<button type="button" class="' + cls + '" data-hour="' + h.hour + '"' +
+      (gone ? " disabled" : "") + ' title="' + title + '" aria-label="Arrive ' + title + '">' +
+      '<i style="height:' + height + '%"></i></button>';
+  }).join("");
+
+  let verdict;
+  let sub;
+  const flat = "Every carpark near here charges <b>" + priceWord(flatPrice) +
+    "</b> for this stay, whenever you arrive, so the only thing that changes is whether you get in.";
+  if (selRow && selRow.space !== null && selRow.space === best) {
+    verdict = 'Usually <span class="big"><em>' + pct(best) + " free</em></span> arriving " + at(sel);
+    sub = flat + " That is as good as it gets today.";
+  } else {
+    verdict = "Easiest <em>" + bestPhrase + "</em>, usually <span class=\"big\"><em>" +
+      pct(best) + " free</em></span>";
+    sub = flat +
+      (selRow && selRow.space !== null
+        ? " Arriving " + at(sel) + " it is usually only <b>" + pct(selRow.space) + " free</b>."
+        : "") +
+      (hours[bestHours[0]].spaceCarpark
+        ? " Emptiest then: <b>" + tidy(hours[bestHours[0]].spaceCarpark.a) + "</b>, usually " +
+          pct(hours[bestHours[0]].spaceCarparkFree) + " free."
+        : "");
+  }
+
+  return '<div class="when-panel">' +
+    '<div class="fee-h">How full carparks near here usually are, hour by hour</div>' +
+    '<div class="verdict" style="margin-top:6px">' + verdict + "</div>" +
+    '<div class="verdict-sub">' + sub + "</div>" +
+    '<div class="day-bars">' + bars + "</div>" +
+    '<div class="day-axis"><span>12am</span><span>6am</span><span>12pm</span><span>6pm</span><span>11pm</span></div>' +
+    '<div class="day-note">Taller means more lots free. From ' +
+    "readings this site collected itself, so hours it has not seen enough of are left blank rather " +
+    "than guessed at. Tap an hour to price your stay arriving then.</div></div>";
 }
 
 /* ---- what it costs through the day --------------------------------- */
@@ -1145,7 +1297,9 @@ function renderDetail() {
     lots = '<div class="meta">Not reporting lot counts right now</div>';
   }
 
-  const usual = typicalNow(c.i, now);
+  // The prediction has to be about the hour you are ASKING about, not the hour
+  // it happens to be while you read the page.
+  const usual = typicalAt(c.i, stayStart());
   let usualLine = "";
   if (usual !== null) {
     let s = "Usually " + Math.round(usual * 100) + "% free at this hour";
