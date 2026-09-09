@@ -19,7 +19,8 @@
 // charges the same, which is most of the island.
 // v9: motorcycles and lorries are priced where URA prices them, so the payload
 // carries three rate tables per carpark instead of one.
-const VERSION = "v9";
+// v10: rows carry an estimated walking time beside the distance.
+const VERSION = "v10";
 const TILES = "tiles-v1";
 const SHELL = [
   "./", "./index.html", "./carparks.min.json", "./holidays.json", "./patterns.json",
