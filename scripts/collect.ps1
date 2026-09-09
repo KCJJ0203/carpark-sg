@@ -82,7 +82,11 @@ try {
         exit 0
     }
 
-    $add = Invoke-Git @("add", "data/history")
+    # Stage all of data/, not just history. Once a week collect.js also
+    # rebuilds data/carparks.json, and staging only history left that file
+    # modified-but-unstaged - which git pull --rebase refuses outright. The
+    # push then failed every 30 minutes until someone looked.
+    $add = Invoke-Git @("add", "data")
     if ($add.Code -ne 0) { throw "git add failed: $($add.Output)" }
 
     $staged = Invoke-Git @("diff", "--cached", "--quiet")
@@ -92,7 +96,7 @@ try {
     }
 
     $stamp = Get-Date -Format "yyyy-MM-ddTHH:mmzzz"
-    $commit = Invoke-Git @("commit", "-q", "-m", "data: availability snapshot $stamp (laptop)")
+    $commit = Invoke-Git @("commit", "-q", "-m", "data: snapshot $stamp (laptop)")
     if ($commit.Code -ne 0) { throw "git commit failed: $($commit.Output)" }
 
     $pull = Invoke-Git @("pull", "--rebase")

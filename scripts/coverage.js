@@ -79,6 +79,27 @@ function main() {
     );
   }
 
+  // A day with no file at all does not appear in the table above, because there
+  // is nothing to read. That is the worst possible way to report an outage: the
+  // rows that remain all look healthy and the silence is invisible. So walk the
+  // calendar rather than the directory.
+  const missing = [];
+  if (days.length > 1) {
+    const day = 86400000;
+    const have = new Set(days.map((d) => d.date));
+    for (let t = Date.parse(days[0].date); t <= Date.parse(days[days.length - 1].date); t += day) {
+      const iso = new Date(t).toISOString().slice(0, 10);
+      if (!have.has(iso)) missing.push(iso);
+    }
+  }
+  if (missing.length) {
+    console.log("\nDAYS WITH NO DATA AT ALL: " + missing.length);
+    console.log("  " + missing.join(", "));
+    console.log("  Nothing was collected on these days, or this clone is behind the");
+    console.log("  collectors - try `git pull` before believing a gap is real.");
+    process.exitCode = 1;
+  }
+
   // Judge on the finished days only; today is partial by definition.
   const finished = days.slice(0, -1);
   const recent = finished.slice(-3);
