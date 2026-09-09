@@ -78,10 +78,60 @@
     white-space: nowrap;
   }
   .chip[aria-pressed="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
-  /* Sorting and filtering share a row but are different questions - one order,
-     any number of types - so a rule separates them rather than letting six
-     identical pills imply one group of six. */
-  .chip-div { flex: 0 0 auto; width: 1px; background: var(--line); margin: 4px 6px; }
+  /* Sorting and filtering are different questions - ONE order, ANY number of
+     types - and nine identical pills wrapping into three rows said neither.
+     A joined segmented control reads as "pick one"; separate outlined toggles
+     read as "pick any"; a label on each row says which is which. */
+  .ctl-row { display: flex; align-items: center; gap: 9px; }
+  .ctl-lab {
+    flex: 0 0 auto; width: 38px; font-size: 11px; font-weight: 600; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .seg {
+    display: flex; flex: 1 1 auto; min-width: 0; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 10px; padding: 2px; gap: 2px;
+  }
+  .seg button {
+    flex: 1 1 0; min-width: 0; font-size: 13px; font-weight: 600; padding: 6px 4px;
+    border: none; border-radius: 8px; background: none; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px var(--scrim); }
+  /* Wrapping is right in the rail, where there is room for two lines. On a
+     phone it cost 33px of a sheet that had none to spare, so there the filters
+     scroll sideways the way phone filter rows always have. The desktop rule
+     below is more specific and turns wrapping back on. */
+  #typeChips { flex: 1 1 auto; min-width: 0; }
+
+  /* ---- what it costs through the day --------------------------------- */
+  /* The reason this app exists. Live availability is answered by other sites;
+     none of them answer "come at six instead and it is half the price". */
+  .day-box { border: 1px solid var(--line); border-radius: 12px; padding: 13px; margin-top: 12px; }
+  .day-bars { display: flex; align-items: flex-end; gap: 2px; height: 74px; margin: 10px 0 5px; }
+  .day-bars button {
+    flex: 1 1 0; min-width: 0; padding: 0; border: none; background: none;
+    height: 100%; display: flex; align-items: flex-end; cursor: pointer; border-radius: 3px;
+  }
+  .day-bars button:hover i { filter: brightness(1.25); }
+  .day-bars i {
+    display: block; width: 100%; border-radius: 3px 3px 0 0; background: var(--muted);
+    opacity: .55; min-height: 3px;
+  }
+  .day-bars .best i { background: var(--ok); opacity: 1; }
+  .day-bars .free i { background: var(--ok); opacity: .45; }
+  .day-bars .now i { background: var(--ink); opacity: .95; }
+  .day-bars .none i { background: repeating-linear-gradient(45deg, var(--line), var(--line) 2px, transparent 2px, transparent 4px); opacity: 1; }
+  .day-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  .day-note { font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .day-note b { color: var(--ink); }
+
+  /* ---- arriving later ------------------------------------------------ */
+  .when-grid { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  #atTime {
+    font: inherit; font-size: 14px; font-variant-numeric: tabular-nums; padding: 5px 9px;
+    border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  }
+  .cheapest-tag { color: var(--ok); border-color: currentColor; font-weight: 600; }
 
   /* ---- list --------------------------------------------------------- */
   .where { font-size: 13px; color: var(--muted); margin: 9px 0 6px; }
@@ -193,9 +243,10 @@
   }
   .slab-h b { color: var(--ink); font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .slab-h em { font-style: normal; font-variant-numeric: tabular-nums; }
-  /* A range input is the one control that lets you scrub arrival time and
-     watch every price on the map move, which is the question this app exists
-     to answer. Styled explicitly because the platform default is inconsistent
+  /* Length of stay is a magnitude with no exact value in mind - "about two
+     hours" - which is what a slider is for. Arrival time is the opposite: it is
+     a specific moment, and dragging for it is guesswork, so that one is a real
+     time field. Styled explicitly because the platform default is inconsistent
      and, on Windows, tiny. */
   input[type="range"] {
     -webkit-appearance: none; appearance: none; width: 100%; height: 20px;
@@ -278,21 +329,28 @@
         </span>
 
         <div id="laterBox" hidden>
-          <div class="bar-row">
+          <!-- An arrival time is an exact moment, not a magnitude. Dragging to
+               6.45pm is guesswork, so this is a real time field; the chips carry
+               the answers people actually give ("in an hour", "this evening").
+               Where the price of arriving LATER is the question, the answer is
+               the chart in the carpark panel, not a slider up here. -->
+          <div class="when-grid">
+            <input type="time" id="atTime" step="900" aria-label="Arrival time">
+            <span class="chips" role="group" aria-label="Common arrival times">
+              <button type="button" class="chip" data-in="60">in 1 h</button>
+              <button type="button" class="chip" data-in="180">in 3 h</button>
+              <button type="button" class="chip" data-at="1140">7pm</button>
+              <button type="button" class="chip" data-at="540">9am</button>
+            </span>
+          </div>
+          <div class="when-grid">
             <span class="chips" role="group" aria-label="Which day">
               <button type="button" class="chip" data-day="0" aria-pressed="true">Today</button>
               <button type="button" class="chip" data-day="1" aria-pressed="false">Tomorrow</button>
             </span>
             <input type="date" id="onDate" aria-label="Another date">
           </div>
-          <label class="slab">
-            <span class="slab-h"><span>Arrive</span><b id="startLabel">—</b></span>
-            <!-- Quarter hours across the whole day. Dragging this is the fastest
-                 way to answer "when is it cheaper to come?", because every price
-                 on the map and in the list moves with it. -->
-            <input type="range" id="startTime" min="0" max="1425" step="15" value="0"
-                   aria-label="Arrival time">
-          </label>
+          <div class="slab-h"><span>Arriving</span><b id="startLabel">—</b></div>
         </div>
 
         <label class="slab">
@@ -308,7 +366,14 @@
           <span class="chips" id="durPresets" role="group" aria-label="Common lengths of stay"></span>
         </label>
       </div>
-      <div class="chips" id="controls"></div>
+      <div class="ctl-row">
+        <span class="ctl-lab" id="sortLab">Show</span>
+        <div class="seg" id="sortSeg" role="group" aria-labelledby="sortLab"></div>
+      </div>
+      <div class="ctl-row">
+        <span class="ctl-lab" id="typeLab">Type</span>
+        <div class="chips" id="typeChips" role="group" aria-labelledby="typeLab"></div>
+      </div>
     </div>
     <div id="sheetBody">
       <div id="saved"></div>
@@ -396,8 +461,11 @@ const dayAt = (d) => d.toLocaleDateString("en-SG",
   { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Singapore" });
 
 const stayStart = () => state.stay.start ? new Date(state.stay.start) : new Date();
-const priceOf = (c) => (hasOwnRates(c) ? U : R)
-  .feeFor(forEngine(c), stayStart(), state.stay.minutes, isHoliday);
+// Price a carpark for any moment, which the through-the-day chart needs and the
+// list gets by passing the stay's own start.
+const feeForCarpark = (c, start, minutes) => (hasOwnRates(c) ? U : R)
+  .feeFor(forEngine(c), start, minutes, isHoliday);
+const priceOf = (c) => feeForCarpark(c, stayStart(), state.stay.minutes);
 const money = (n) => "$" + n.toFixed(2);
 
 // Mirrors src/quality.js. A large carpark reporting EVERY lot free is almost
@@ -710,7 +778,12 @@ function cardHtml(row) {
     lots = '<span class="meta">Not reporting lot counts right now</span>';
   }
 
+  const cheapest = state.cheapestNearby;
+  const delta = fee.total !== null && cheapest !== null ? fee.total - cheapest : null;
   const tags = [
+    delta === 0 && state.priceSpread
+      ? '<span class="tag cheapest-tag">Cheapest nearby</span>' : "",
+    delta ? '<span class="tag">+' + money(delta) + " vs cheapest nearby</span>" : "",
     freeNow ? '<span class="tag free">Free right now</span>' : "",
     fee.peak ? '<span class="tag dear">Peak-hour rates</span>' : "",
     fee.central && !fee.peak ? '<span class="tag dear">Central Area</span>' : "",
@@ -748,6 +821,16 @@ function render() {
 
   const rows = shortlist(40);
   state.lastRows = rows;
+  // What the cheapest option around here actually costs. Every other row is
+  // then quoted against it, because "$4.80" only means something next to the
+  // $2.40 two streets away - and that comparison is the reason to open this
+  // app rather than one that only shows which carparks have space.
+  const priced = rows.map((r) => r.fee.total).filter((t) => t !== null);
+  state.cheapestNearby = priced.length ? Math.min.apply(null, priced) : null;
+  // Only worth saying when there is something to choose between. In a stretch
+  // where nine streets all charge $2.40, nine green "Cheapest nearby" badges
+  // tell the reader nothing except that the badge is meaningless.
+  state.priceSpread = new Set(priced).size > 1;
   drawPins(rows);
 
   const byId = new Map(state.carparks.map((c) => [c.i, c]));
@@ -772,6 +855,64 @@ function render() {
   $("#where").innerHTML = lead + " <strong>" + (nearMe ? "you" : "the middle of the map") + "</strong>" +
     (state.fetchedAt ? " &middot; live as of " +
       state.fetchedAt.toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit" }) : "");
+}
+
+/* ---- what it costs through the day --------------------------------- */
+
+// The question no other Singapore parking site answers. Live availability is
+// well covered elsewhere; "come at six instead and it is half the price" is
+// not, and it falls straight out of the rate engine this app already has.
+//
+// One price per hour of the chosen day, for the SAME length of stay, so the
+// bars are comparable. Hours the carpark cannot be priced for are drawn hatched
+// rather than as zero - the difference between "free" and "we do not know" is
+// the whole discipline of this project.
+function priceByHour(c) {
+  const day = sgParts(stayStart()).date;
+  const out = [];
+  for (let h = 0; h < 24; h++) {
+    const fee = feeForCarpark(c, sgDateAt(day, h * 60), state.stay.minutes);
+    out.push({ hour: h, total: fee.total, reason: fee.unavailable });
+  }
+  return out;
+}
+
+function dayChartHtml(c) {
+  const hours = priceByHour(c);
+  const priced = hours.filter((h) => h.total !== null);
+  if (priced.length < 2) return "";
+
+  const max = Math.max.apply(null, priced.map((h) => h.total));
+  const min = Math.min.apply(null, priced.map((h) => h.total));
+  const nowHour = sgParts(stayStart()).minutes / 60 | 0;
+  const cheapest = priced.filter((h) => h.total === min).map((h) => h.hour);
+
+  const bars = hours.map((h) => {
+    const cls = h.total === null ? "none"
+      : h.hour === nowHour ? "now"
+      : h.total === min && max > min ? "best"
+      : h.total === 0 ? "free" : "";
+    const height = h.total === null ? 100
+      : max > 0 ? Math.max(4, Math.round((h.total / max) * 100)) : 6;
+    const title = clockAt(sgDateAt(sgParts(stayStart()).date, h.hour * 60)) + ": " +
+      (h.total === null ? "no price published" : h.total === 0 ? "free" : money(h.total));
+    return '<button type="button" class="' + cls + '" data-hour="' + h.hour +
+      '" title="' + title + '" aria-label="Arrive at ' + title + '">' +
+      '<i style="height:' + height + '%"></i></button>';
+  }).join("");
+
+  const at = (h) => clockAt(sgDateAt(sgParts(stayStart()).date, h * 60));
+  const note = max > min
+    ? "Cheapest arriving <b>" + cheapest.map(at).join(" or ") + "</b> at <b>" +
+      (min === 0 ? "no charge" : money(min)) + "</b>, against " + money(max) +
+      " at the dearest hour. Tap a bar to price that arrival."
+    : "The same " + (min === 0 ? "no charge" : money(min)) +
+      " whenever you arrive on this day.";
+
+  return '<div class="day-box"><div class="fee-h">This stay, arriving at each hour</div>' +
+    '<div class="day-bars">' + bars + "</div>" +
+    '<div class="day-axis"><span>12am</span><span>6am</span><span>12pm</span><span>6pm</span><span>11pm</span></div>' +
+    '<div class="day-note">' + note + "</div></div>";
 }
 
 /* ---- one carpark --------------------------------------------------- */
@@ -905,6 +1046,7 @@ function renderDetail() {
         (c.k ? '<span class="dot"></span><span>' + c.k + " lots in total</span>" : "") + "</div>" +
       lots + usualLine +
       '<div class="fee-box"><div class="fee-h">Cost of this stay</div>' + feeBody + "</div>" +
+      dayChartHtml(c) +
       '<a class="maps" href="https://www.google.com/maps/dir/?api=1&destination=' + c.y + "," + c.x +
         '" target="_blank" rel="noopener"><button type="button">Directions</button></a>' +
       (hasOwnRates(c)
@@ -914,6 +1056,14 @@ function renderDetail() {
           '. <a href="' + R.RATES.source + '" target="_blank" rel="noopener">Check them yourself</a>.</div>') +
     "</div>";
   $("#back").addEventListener("click", closeDetail);
+
+  // Tapping an hour prices that arrival - which is also how someone discovers
+  // that the answer to "when should I come" is a time they had not considered.
+  $("#list").querySelectorAll(".day-bars [data-hour]").forEach((b) => {
+    b.addEventListener("click", () => {
+      setStay({ start: sgDateAt(sgParts(stayStart()).date, +b.dataset.hour * 60) });
+    });
+  });
 }
 
 /* ---- the sheet ----------------------------------------------------- */
@@ -1021,11 +1171,15 @@ function paintStay() {
 
   if (later) {
     const p = sgParts(start);
-    $("#startTime").value = String(Math.round(p.minutes / 15) * 15);
+    const hh = String(Math.floor(p.minutes / 60)).padStart(2, "0");
+    const mm = String(p.minutes % 60).padStart(2, "0");
+    $("#atTime").value = hh + ":" + mm;
     $("#onDate").value = p.date;
     const today = sgParts(new Date()).date;
     $("#laterBox").querySelectorAll("[data-day]").forEach((b) =>
       b.setAttribute("aria-pressed", String(addDays(today, +b.dataset.day) === p.date)));
+    $("#laterBox").querySelectorAll("[data-at]").forEach((b) =>
+      b.setAttribute("aria-pressed", String(+b.dataset.at === p.minutes)));
   }
 }
 
@@ -1059,9 +1213,26 @@ function initStayControls() {
     setStay({ start: sgDateAt(p.date, Math.floor(p.minutes / 60) * 60) });
   });
 
-  $("#startTime").addEventListener("input", (e) => {
-    const p = sgParts(stayStart());
-    setStay({ start: sgDateAt(p.date, +e.target.value) });
+  // A typed or picked time, to the quarter hour.
+  $("#atTime").addEventListener("change", (e) => {
+    const m = /^(\d{2}):(\d{2})/.exec(e.target.value || "");
+    if (!m) return;
+    setStay({ start: sgDateAt(sgParts(stayStart()).date, +m[1] * 60 + +m[2]) });
+  });
+
+  // "In an hour" is how people answer this, so it should not need arithmetic.
+  $("#laterBox").querySelectorAll("[data-in]").forEach((b) => {
+    b.addEventListener("click", () => {
+      const at = new Date(Date.now() + +b.dataset.in * 60000);
+      const p = sgParts(at);
+      setStay({ start: sgDateAt(p.date, Math.round(p.minutes / 15) * 15) });
+    });
+  });
+
+  $("#laterBox").querySelectorAll("[data-at]").forEach((b) => {
+    b.addEventListener("click", () => {
+      setStay({ start: sgDateAt(sgParts(stayStart()).date, +b.dataset.at) });
+    });
   });
 
   $("#laterBox").querySelectorAll("[data-day]").forEach((b) => {
@@ -1082,26 +1253,23 @@ function initStayControls() {
 /* ---- controls ------------------------------------------------------ */
 
 function initControls() {
-  const row = $("#controls");
-  row.innerHTML =
-    '<span role="group" aria-label="Order" style="display:contents">' +
-    SORTS.map((s) => '<button type="button" class="chip" data-sort="' + s.key + '" aria-pressed="' +
-      (s.key === state.sort) + '">' + s.label + "</button>").join("") + "</span>" +
-    '<span class="chip-div" aria-hidden="true"></span>' +
-    '<span role="group" aria-label="Carpark type" style="display:contents">' +
-    FILTERS.map((f) => '<button type="button" class="chip" data-type="' + f.key +
-      '" aria-pressed="false">' + f.label + "</button>").join("") + "</span>";
+  const seg = $("#sortSeg");
+  const types = $("#typeChips");
+  seg.innerHTML = SORTS.map((s) => '<button type="button" data-sort="' + s.key +
+    '" aria-pressed="' + (s.key === state.sort) + '">' + s.label + "</button>").join("");
+  types.innerHTML = FILTERS.map((f) => '<button type="button" class="chip" data-type="' + f.key +
+    '" aria-pressed="false">' + f.label + "</button>").join("");
 
-  row.querySelectorAll("[data-sort]").forEach((b) => {
+  seg.querySelectorAll("[data-sort]").forEach((b) => {
     b.addEventListener("click", () => {
       state.sort = b.dataset.sort;
-      row.querySelectorAll("[data-sort]").forEach((o) =>
+      seg.querySelectorAll("[data-sort]").forEach((o) =>
         o.setAttribute("aria-pressed", String(o.dataset.sort === state.sort)));
       closeDetail();
     });
   });
 
-  row.querySelectorAll("[data-type]").forEach((b) => {
+  types.querySelectorAll("[data-type]").forEach((b) => {
     b.addEventListener("click", () => {
       const t = b.dataset.type;
       if (state.types.has(t)) state.types.delete(t); else state.types.add(t);
