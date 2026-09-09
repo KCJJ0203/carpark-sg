@@ -13,7 +13,9 @@
 // split apart, and the carpark panel gained the through-the-day price chart.
 // v6: the front page is now a verdict about WHEN to park, not a list of
 // carparks, so a cached index.html is a different app.
-const VERSION = "v6";
+// v7: "find me" now explains a blocked permission instead of failing silently,
+// and the hide-list button moved to the edge of the list it hides.
+const VERSION = "v7";
 const TILES = "tiles-v1";
 const SHELL = [
   "./", "./index.html", "./carparks.min.json", "./holidays.json", "./patterns.json",
