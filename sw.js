@@ -17,7 +17,9 @@
 // and the hide-list button moved to the edge of the list it hides.
 // v8: the panel now switches to "how full is it usually" where every carpark
 // charges the same, which is most of the island.
-const VERSION = "v8";
+// v9: motorcycles and lorries are priced where URA prices them, so the payload
+// carries three rate tables per carpark instead of one.
+const VERSION = "v9";
 const TILES = "tiles-v1";
 const SHELL = [
   "./", "./index.html", "./carparks.min.json", "./holidays.json", "./patterns.json",

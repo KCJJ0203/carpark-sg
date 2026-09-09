@@ -380,10 +380,13 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
         <button type="submit" class="icon-btn" id="go" aria-label="Search">→</button>
       </form>
       <div class="stay">
-        <span class="chips" role="group" aria-label="When you are parking">
-          <button type="button" class="chip" id="whenNow" aria-pressed="true">Park now</button>
-          <button type="button" class="chip" id="whenLater" aria-pressed="false">Later</button>
-        </span>
+        <div class="when-grid">
+          <span class="chips" role="group" aria-label="When you are parking">
+            <button type="button" class="chip" id="whenNow" aria-pressed="true">Park now</button>
+            <button type="button" class="chip" id="whenLater" aria-pressed="false">Later</button>
+          </span>
+          <span class="chips" id="vehChips" role="group" aria-label="Vehicle"></span>
+        </div>
 
         <div id="laterBox" hidden>
           <!-- An arrival time is an exact moment, not a magnitude. Dragging to
@@ -469,6 +472,7 @@ const state = {
   types: new Set(),                      // empty means every type
   sort: "near",
   stay: { start: null, minutes: 120 },   // start null means "now"
+  vehicle: "car",
   map: null, markers: new Map(), meMarker: null, lastRows: [],
   // Opens showing the verdict, not just the controls that produce it. The map
   // still gets 44% of a phone screen, and the sheet drags freely from there.
@@ -491,14 +495,24 @@ const sgDate = (d) => new Date(d.getTime() + 8 * 3600 * 1000).toISOString().slic
 // The compact record the page downloads, expanded into what the rate engine
 // expects. Window sets are stored once and referenced by index, so this is
 // where an index becomes actual windows again.
+// Which rate table each vehicle reads. A record with no index for the chosen
+// vehicle is not priced for it - never priced as if it were a car.
+const VEHICLES = [
+  { key: "car", field: "r", label: "Car" },
+  { key: "motorcycle", field: "rm", label: "Motorcycle" },
+  { key: "heavy", field: "rh", label: "Lorry" },
+];
+const vehField = () => (VEHICLES.find((v) => v.key === state.vehicle) || VEHICLES[0]).field;
+
 function forEngine(c) {
+  const i = c[vehField()];
   return {
     id: c.i,
     parkingSystem: c.c ? "COUPON PARKING" : "ELECTRONIC PARKING",
     nightParking: !!c.n,
     shortTermParking: state.windows[c.s] || [],
     freeParking: state.windows[c.f] || [],
-    rates: c.r === undefined ? null : (state.rateTables[c.r] || []),
+    rates: i === undefined ? null : (state.rateTables[i] || []),
   };
 }
 
@@ -527,8 +541,22 @@ const dayAt = (d) => d.toLocaleDateString("en-SG",
 const stayStart = () => state.stay.start ? new Date(state.stay.start) : new Date();
 // Price a carpark for any moment, which the through-the-day chart needs and the
 // list gets by passing the stay's own start.
-const feeForCarpark = (c, start, minutes) => (hasOwnRates(c) ? U : R)
-  .feeFor(forEngine(c), start, minutes, isHoliday);
+const NOT_PRICED = {
+  total: null, free: false, grace: false, capApplied: null, lines: [], couponTotal: null,
+  metered: null, method: "electronic", central: false, peak: false,
+  unavailable: "vehicle-not-priced",
+};
+
+function feeForCarpark(c, start, minutes) {
+  const rec = forEngine(c);
+  // HDB's published schedule is for motor cars, and this project transcribed
+  // exactly that. It says nothing about motorcycles or lorries, so those are
+  // reported as not priced rather than quoted at the car rate - which would be
+  // wrong in the direction that costs money. URA does publish them, and 214 of
+  // its carparks carry a motorcycle table.
+  if (state.vehicle !== "car" && !rec.rates) return { ...NOT_PRICED, minutes: minutes };
+  return (hasOwnRates(c) ? U : R).feeFor(rec, start, minutes, isHoliday);
+}
 const priceOf = (c) => feeForCarpark(c, stayStart(), state.stay.minutes);
 const money = (n) => "$" + n.toFixed(2);
 
@@ -699,6 +727,9 @@ function feeText(fee) {
   // "Closed then" is a claim about the carpark. Where URA simply publishes no
   // rate for those hours we do not know whether it is closed, free, or barred
   // to parking, so the label says only what is true: we have no price.
+  if (fee.unavailable === "vehicle-not-priced") {
+    return { text: "No " + vehicleWord() + " rate here", cls: "none" };
+  }
   if (fee.unavailable === "rate-not-published") return { text: "Price not published", cls: "none" };
   if (fee.unavailable === "no-rates") return { text: "No rate published", cls: "none" };
   if (fee.unavailable) return { text: "Closed then", cls: "none" };
@@ -762,6 +793,7 @@ function pinHtml(row) {
   // A pin has room for a price, not a sentence. "Season only" and "Closed then"
   // are the list's wording; on the map they would be wider than the carpark.
   const label = row.fee.unavailable === "season-only" ? "Season"
+    : row.fee.unavailable === "vehicle-not-priced" ? "\u2013"
     : row.fee.unavailable ? "Shut" : f.text;
   const lots = row.live && row.live.available !== null ? row.live.available : row.live ? "?" : "–";
   return '<div class="pin ' + pinClass(row) + (row.c.i === state.selected ? " chosen" : "") + '">' +
@@ -1006,6 +1038,8 @@ function areaByHour(rows) {
 }
 
 const priceWord = (v) => (v === 0 ? "free" : money(v));
+const vehicleWord = () =>
+  (VEHICLES.find((v) => v.key === state.vehicle) || VEHICLES[0]).label.toLowerCase();
 const pct = (v) => Math.round(v * 100) + "%";
 
 // What our own history says about finding a space there at that hour - and, if
@@ -1316,6 +1350,13 @@ function renderDetail() {
     feeBody = '<div class="fee-total"><span class="fee-n none">Season parking only</span></div>' +
       '<div class="note" style="margin:0">HDB does not offer short-term parking here, so there is no ' +
       "hourly rate to quote.</div>";
+  } else if (fee.unavailable === "vehicle-not-priced") {
+    feeBody = '<div class="fee-total"><span class="fee-n none">No published ' + vehicleWord() +
+      " rate</span></div>" +
+      '<div class="note" style="margin:0">' + (hasOwnRates(c)
+        ? "URA prices " + vehicleWord() + "s at some carparks but not this one."
+        : "HDB's published schedule covers motor cars only, so there is no " + vehicleWord() +
+          " rate to quote here. Check the signboard.") + "</div>";
   } else if (fee.unavailable === "rate-not-published") {
     feeBody = '<div class="fee-total"><span class="fee-n none">Price not published</span></div>' +
       '<div class="note" style="margin:0">URA publishes no rate for part of that stay here. It may ' +
@@ -1542,6 +1583,18 @@ function initStayControls() {
 
   $("#dur").addEventListener("input", (e) => {
     setStay({ minutes: DURATIONS[Math.max(0, Math.min(DURATIONS.length - 1, +e.target.value))] });
+  });
+
+  $("#vehChips").innerHTML = VEHICLES.map((v) =>
+    '<button type="button" class="chip" data-veh="' + v.key + '" aria-pressed="' +
+    (v.key === state.vehicle) + '">' + v.label + "</button>").join("");
+  $("#vehChips").querySelectorAll("[data-veh]").forEach((b) => {
+    b.addEventListener("click", () => {
+      state.vehicle = b.dataset.veh;
+      $("#vehChips").querySelectorAll("[data-veh]").forEach((o) =>
+        o.setAttribute("aria-pressed", String(o.dataset.veh === state.vehicle)));
+      if (state.selected) renderDetail(); else render();
+    });
   });
 
   $("#whenNow").addEventListener("click", () => setStay({ start: null }));
