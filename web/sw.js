@@ -9,7 +9,9 @@
 // copy of carparks.min.json and rates.js is now short by 657 carparks.
 // v4: the page was rebuilt - a rail beside the map on wide screens, sliders for
 // the stay, and search suggestions - so a cached index.html is the old app.
-const VERSION = "v4";
+// v5: arrival became a time field instead of a slider, the sort/filter rows were
+// split apart, and the carpark panel gained the through-the-day price chart.
+const VERSION = "v5";
 const TILES = "tiles-v1";
 const SHELL = [
   "./", "./index.html", "./carparks.min.json", "./holidays.json", "./patterns.json",

@@ -18,6 +18,9 @@ open-data APIs directly.
 - **Park now or later** — rates change at 5pm, at 10.30pm and on Sundays, so a two-hour stay at
   Albert Centre costs $5.60 arriving at 2pm and $2.40 arriving at 6pm. The app prices each half
   hour at whatever rate applies then, so a stay crossing a boundary stays right.
+- **A price for every hour of the day** — see what the same stay costs arriving at 9am, at 6pm or at
+  midnight, and tap the hour you want
+- **Every carpark priced against the cheapest one near it**, so a number means something
 - **Filter by carpark type** — multi-storey, surface, basement, covered, and for URA the
   distinction that actually changes the trip: an off-street lot you drive into, or a row of
   parallel bays on a public road
@@ -130,13 +133,26 @@ it is put — and letting go re-anchors the list to the middle of the strip of m
 That last part is the whole fix: "cheapest near the middle of the map" used to mean the middle of a
 map that was half covered by the list quoting it.
 
-**The stay is two sliders, not two dropdowns.** How long you are staying is a slider over a scale
-that is fifteen minutes wide at the short end and an hour wide at the long end, because 15 versus 30
-minutes is a real difference to a driver (the grace period sits between them) and 9 versus 10 hours
-is not. Arrival time is a slider across the day, and dragging it re-prices every carpark on screen —
-which is the fastest way to answer "is it cheaper if I come after five?". Both read out as
-`12.00pm → 2.00pm`, because the question is really "what will I pay", and that depends on when you
-leave as much as when you arrive.
+**How long you stay is a slider; when you arrive is not.** A length of stay is a magnitude with no
+exact value in mind — "about two hours" — so it is a slider, over a scale that is fifteen minutes wide
+at the short end and an hour wide at the long end, because 15 versus 30 minutes is a real difference
+to a driver (the grace period sits between them) and 9 versus 10 hours is not. An arrival time is
+the opposite: a specific moment, where dragging for 6.45pm is guesswork. So that is a real time
+field, with chips for the answers people actually give ("in 1 h", "7pm"). Both read out as
+`12.00pm → 2.00pm`, because the question is "what will I pay", and that depends on when you leave as
+much as when you arrive.
+
+**What it costs through the day.** Open a carpark and there is a bar per hour showing what *your*
+stay would cost arriving at each one, with the cheapest hours marked and hours the carpark cannot be
+priced for drawn hatched rather than as zero. Tap a bar and that becomes your arrival time.
+
+This is the chart the rate engine was always implying and it is the point of the whole project. The
+other Singapore parking sites answer "is there a lot free?" — wheretopark.sg opens with *"Stop
+praying for a lot"* — which is a real question, well covered, and not this one. Nobody answers "come
+at six instead and it costs nothing", even though Singapore's rates change at 8.30am, at 5pm, at
+10.30pm and again on Sundays. The list makes the same point sideways: every row is quoted against
+the cheapest option near it (`+$2.40 vs cheapest nearby`), and the mark disappears entirely when
+every carpark in view charges the same, because then it is not telling you anything.
 
 **The search suggests, because the geocoder's first answer is often wrong.** Asked for "orchard
 road", OneMap returns a HOTEL ON BIDEFORD ROAD first and Orchard Road itself second; asked for

@@ -158,30 +158,56 @@ async function auditDesktop(browser, errors) {
   // complaint - a datetime-local that showed nothing but editable segments.
   await page.click("#whenLater");
   await page.waitForTimeout(350);
-  const later = await page.evaluate(() => ({
-    boxShown: !document.querySelector("#laterBox").hidden,
-    label: document.querySelector("#startLabel").textContent,
-    slider: !!document.querySelector("#startTime"),
-    start: state.stay.start,
-  }));
+  const later = await page.evaluate(() => {
+    const t = document.querySelector("#atTime");
+    return {
+      boxShown: !document.querySelector("#laterBox").hidden,
+      label: document.querySelector("#startLabel").textContent,
+      timeField: t ? t.type : null,
+      step: t ? t.step : null,
+      noSlider: !document.querySelector("#startTime"),
+      quickChips: [...document.querySelectorAll("#laterBox .chip")].map((c) => c.textContent.trim()),
+      start: state.stay.start,
+    };
+  });
   check("choosing Later reveals the arrival controls", later.boxShown);
-  check("there is a time slider, not a bare stepper", later.slider);
+  // An arrival time is an exact moment. A slider makes you hunt for 6.45pm.
+  check("arrival is a real time field, not a slider", later.timeField === "time" && later.noSlider,
+    String(later.timeField));
+  check("the time field steps in quarter hours", later.step === "900", String(later.step));
+  check("quick arrival chips are offered", later.quickChips.length >= 4, JSON.stringify(later.quickChips));
   check("the arrival readout says a day and a time", /\d/.test(later.label) && later.label.length > 6, later.label);
   check("a start time is actually set", !!later.start);
 
-  // Scrub the arrival time and watch the prices move: the whole point.
+  // Setting an exact time must re-price everything.
   const p0 = await page.$$eval(".row[data-id] .price", (e) => e.map((x) => x.textContent).join("|"));
-  await page.$eval("#startTime", (el) => {
-    el.value = "1380";                       // 23:00, into the night rates
-    el.dispatchEvent(new Event("input", { bubbles: true }));
+  await page.$eval("#atTime", (el) => {
+    el.value = "23:00";                      // into the night rates
+    el.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await page.waitForTimeout(400);
-  const scrub = await page.evaluate(() => ({
+  const typed = await page.evaluate(() => ({
     label: document.querySelector("#startLabel").textContent,
     prices: [...document.querySelectorAll(".row[data-id] .price")].map((x) => x.textContent).join("|"),
   }));
-  check("scrubbing the arrival time re-prices the list", scrub.prices !== p0, "was " + p0.slice(0, 40));
-  check("the readout follows the slider", /11[:.]00\s*pm/i.test(scrub.label.replace(/\u2009/g, "")), scrub.label);
+  check("typing an arrival time re-prices the list", typed.prices !== p0, "was " + p0.slice(0, 40));
+  check("the readout follows the time field",
+    /11[:.]00\s*pm/i.test(typed.label.replace(/\u2009/g, "")), typed.label);
+
+  // "in 1 h" is how a person answers this question.
+  await page.click("#laterBox [data-in='60']");
+  await page.waitForTimeout(350);
+  const relative = await page.evaluate(() => {
+    const ahead = (new Date(state.stay.start).getTime() - Date.now()) / 60000;
+    return { ahead: ahead, label: document.querySelector("#startLabel").textContent };
+  });
+  check("\"in 1 h\" sets an arrival about an hour ahead",
+    relative.ahead > 44 && relative.ahead < 76, Math.round(relative.ahead) + " min ahead");
+
+  await page.click("#laterBox [data-at='1140']");
+  await page.waitForTimeout(350);
+  check("a 7pm chip sets 7pm exactly",
+    await page.evaluate(() => new Date(state.stay.start.getTime() + 8 * 3600000).getUTCHours() === 19));
 
   // Another day must be reachable, because weekday and Sunday rates differ.
   await page.click("#laterBox [data-day='1']");
@@ -214,7 +240,7 @@ async function auditDesktop(browser, errors) {
   // Text that does not fit is text the reader has to guess at.
   const fits = await page.evaluate(() => {
     const q = document.querySelector("#q");
-    const chips = [...document.querySelectorAll("#controls .chip")];
+    const chips = [...document.querySelectorAll("#typeChips .chip")];
     const head = document.querySelector("#sheetHead").getBoundingClientRect();
     return {
       placeholder: (() => {
@@ -231,6 +257,116 @@ async function auditDesktop(browser, errors) {
   check("the search placeholder fits its box", fits.placeholder);
   check("every filter chip is visible in the rail", fits.chipsClipped === 0,
     fits.chipsClipped + " of " + fits.chipCount + " clipped");
+
+  // Nine identical pills wrapping into three rows said nothing about which are
+  // "pick one" and which are "pick any".
+  const groups = await page.evaluate(() => {
+    const segButtons = [...document.querySelectorAll("#sortSeg button")];
+    const typeChips = [...document.querySelectorAll("#typeChips .chip")];
+    const segTops = new Set(segButtons.map((b) => Math.round(b.getBoundingClientRect().top)));
+    return {
+      sortCount: segButtons.length, typeCount: typeChips.length,
+      sortOnOneRow: segTops.size === 1,
+      labels: [...document.querySelectorAll(".ctl-lab")].map((l) => l.textContent.trim()),
+      segLooksJoined: segButtons.length > 0 &&
+        getComputedStyle(segButtons[0].parentElement).borderTopWidth !== "0px",
+      pressedSorts: segButtons.filter((b) => b.getAttribute("aria-pressed") === "true").length,
+    };
+  });
+  check("the three orders sit on one row as a segmented control",
+    groups.sortOnOneRow && groups.segLooksJoined, groups.sortCount + " buttons");
+  check("exactly one order is chosen at a time", groups.pressedSorts === 1, String(groups.pressedSorts));
+  check("each control row is labelled", groups.labels.length === 2, JSON.stringify(groups.labels));
+  check("the type filters are a separate group", groups.typeCount === 6, String(groups.typeCount));
+
+  await ctx.close();
+}
+
+// The feature that makes this a different app from the ones that only show
+// which carparks have space.
+async function auditPriceChart(browser, errors) {
+  console.log("\n== the price-through-the-day chart ==");
+  const { ctx, page } = await open(browser, 1600, 1000, errors);
+
+  // Somewhere with real rate changes during the day.
+  await page.evaluate(() => goTo(1.3006, 103.8388, 16));
+  await page.waitForTimeout(900);
+  await page.click(".row[data-id]");
+  await page.waitForTimeout(500);
+
+  const chart = await page.evaluate(() => {
+    const box = document.querySelector(".day-box");
+    if (!box) return { present: false };
+    const bars = [...box.querySelectorAll("[data-hour]")];
+    const heights = bars.map((b) => b.querySelector("i").style.height);
+    return {
+      present: true,
+      bars: bars.length,
+      hours: bars.map((b) => +b.dataset.hour).join(","),
+      distinctHeights: new Set(heights).size,
+      note: box.querySelector(".day-note").textContent,
+      titled: bars.every((b) => (b.getAttribute("title") || "").length > 3),
+      marksBest: !!box.querySelector(".best, .free"),
+    };
+  });
+  check("the carpark panel charts the day", chart.present);
+  check("one bar per hour", chart.bars === 24, String(chart.bars));
+  check("the hours run 0 to 23 in order", chart.hours === [...Array(24).keys()].join(","));
+  check("the bars differ, so the chart says something", chart.distinctHeights > 2,
+    chart.distinctHeights + " distinct heights");
+  check("it names the cheapest hour in words", /Cheapest arriving|same/i.test(chart.note || ""),
+    (chart.note || "").slice(0, 90));
+  check("every bar says its hour and price on hover", chart.titled);
+  check("the cheapest hour is marked", chart.marksBest);
+
+  // Tapping a bar prices that arrival - the chart is a control, not a picture.
+  const before = await page.evaluate(() => ({
+    total: document.querySelector(".fee-n").textContent,
+    start: state.stay.start,
+  }));
+  const target = await page.evaluate(() => {
+    const bars = [...document.querySelectorAll(".day-bars [data-hour]")];
+    const best = bars.find((b) => b.classList.contains("best")) || bars[20];
+    return +best.dataset.hour;
+  });
+  await page.click(".day-bars [data-hour='" + target + "']");
+  await page.waitForTimeout(450);
+  const after = await page.evaluate(() => ({
+    total: document.querySelector(".fee-n").textContent,
+    hour: state.stay.start ? new Date(state.stay.start.getTime() + 8 * 3600000).getUTCHours() : null,
+    laterOn: !document.querySelector("#laterBox").hidden,
+  }));
+  check("tapping an hour sets that arrival time", after.hour === target,
+    "wanted " + target + ", got " + after.hour);
+  check("tapping an hour switches to Later", after.laterOn);
+  check("tapping an hour re-prices the carpark", after.total !== before.total || before.start !== null,
+    before.total + " -> " + after.total);
+
+  // The list should read as a comparison, not a directory.
+  await page.click("#back");
+  await page.waitForTimeout(400);
+  const compare = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll(".row[data-id]")];
+    const read = (row) => {
+      const t = row.querySelector(".price").textContent.trim();
+      return t === "Free" ? 0 : /^\$/.test(t) ? Number(t.slice(1)) : null;
+    };
+    const priced = rows.map(read).filter((v) => v !== null);
+    const min = priced.length ? Math.min.apply(null, priced) : null;
+    const marked = rows.filter((r) => /Cheapest nearby/.test(r.textContent));
+    return {
+      spread: new Set(priced).size > 1,
+      marked: marked.length,
+      allMarkedAreCheapest: marked.every((r) => read(r) === min),
+      deltas: [...document.querySelectorAll(".row[data-id] .tag")]
+        .filter((t) => /vs cheapest nearby/.test(t.textContent)).length,
+    };
+  });
+  check("the cheapest-nearby mark only ever lands on the cheapest price",
+    compare.allMarkedAreCheapest, compare.marked + " marked");
+  check("when prices differ, the cheapest is marked and the rest are priced against it",
+    !compare.spread || (compare.marked >= 1 && compare.deltas >= 1),
+    "spread=" + compare.spread + " marked=" + compare.marked + " deltas=" + compare.deltas);
 
   await ctx.close();
 }
@@ -277,7 +413,8 @@ async function auditPhone(browser, errors) {
   const sizes = await page.evaluate(() => {
     const r = (s) => { const e = document.querySelector(s); if (!e) return null;
       const b = e.getBoundingClientRect(); return { w: b.width, h: b.height }; };
-    return { dur: r("#dur"), q: r("#q"), chip: r("#controls .chip"), go: r("#go") };
+    return { dur: r("#dur"), q: r("#q"), chip: r("#typeChips .chip"), go: r("#go"),
+             seg: r("#sortSeg button") };
   });
   check("the duration slider is full width on a phone", sizes.dur && sizes.dur.w > 250, JSON.stringify(sizes.dur));
   check("the slider is tall enough to grab", sizes.dur && sizes.dur.h >= 20, JSON.stringify(sizes.dur));
@@ -351,6 +488,7 @@ async function auditTablet(browser, errors) {
   const errors = [];
   try {
     await auditDesktop(browser, errors);
+    await auditPriceChart(browser, errors);
     await auditPhone(browser, errors);
     await auditTablet(browser, errors);
   } finally {
