@@ -124,21 +124,28 @@ async function auditDesktop(browser, errors) {
     await page.evaluate(() => document.querySelector("#sugg").hidden));
 
   // DURATION: the slider must change the price, and the label must agree.
-  const d0 = await page.evaluate(() => ({
-    label: document.querySelector("#durLabel").textContent,
-    mins: state.stay.minutes,
-    price: (document.querySelector(".row[data-id] .price") || {}).textContent,
-  }));
+  // Reads the first row that HAS a price, not simply the first row: the LTA
+  // malls publish none, and comparing "No published price" against itself
+  // would pass or fail for reasons that have nothing to do with the slider.
+  // Runs in the page, so it is written out in full at both call sites rather
+  // than shared through a helper this side of the boundary.
+  const READ = () => {
+    const row = state.lastRows.find((r) => r.fee.total !== null);
+    const el = row && [...document.querySelectorAll(".row[data-id]")]
+      .find((e) => e.dataset.id === row.c.i);
+    return {
+      label: document.querySelector("#durLabel").textContent,
+      mins: state.stay.minutes,
+      price: el ? el.querySelector(".price").textContent : null,
+    };
+  };
+  const d0 = await page.evaluate(READ);
   await page.$eval("#dur", (el) => {
     el.value = String(Number(el.max));
     el.dispatchEvent(new Event("input", { bubbles: true }));
   });
   await page.waitForTimeout(400);
-  const d1 = await page.evaluate(() => ({
-    label: document.querySelector("#durLabel").textContent,
-    mins: state.stay.minutes,
-    price: (document.querySelector(".row[data-id] .price") || {}).textContent,
-  }));
+  const d1 = await page.evaluate(READ);
   check("the duration slider changes the stay", d1.mins > d0.mins, d0.mins + " -> " + d1.mins);
   check("the label agrees with the stay", d1.label.indexOf("12") === 0, d1.label);
   check("a longer stay changes the prices shown", d1.price !== d0.price, d0.price + " -> " + d1.price);
@@ -637,10 +644,20 @@ async function auditPriceChart(browser, errors) {
   console.log("\n== the price-through-the-day chart ==");
   const { ctx, page } = await open(browser, 1600, 1000, errors);
 
-  // Somewhere with real rate changes during the day.
+  // Somewhere with real rate changes during the day. Not simply the nearest
+  // row: since the LTA malls arrived, the nearest thing to Somerset is often
+  // one of them, and a carpark nobody publishes a price for correctly has no
+  // price chart to audit.
   await page.evaluate(() => goTo(1.3006, 103.8388, 16));
   await page.waitForTimeout(900);
-  await page.click(".row[data-id]");
+  const picked = await page.evaluate(() => {
+    const row = state.lastRows.find((r) => r.fee.total !== null);
+    if (!row) return null;
+    const el = [...document.querySelectorAll(".row[data-id]")].find((e) => e.dataset.id === row.c.i);
+    if (el) el.click();
+    return el ? row.c.i : null;
+  });
+  check("there is a priced carpark near Somerset to chart", picked !== null, String(picked));
   await page.waitForTimeout(500);
 
   const chart = await page.evaluate(() => {
@@ -842,6 +859,110 @@ async function auditTablet(browser, errors) {
   await ctx.close();
 }
 
+// The malls, from LTA DataMall. This source publishes lot counts and no prices
+// at all, so every check here is about the site refusing to invent one.
+async function auditMalls(browser, errors) {
+  console.log("\n== malls (LTA, no published prices) ==");
+  const { ctx, page } = await open(browser, 1600, 1000, errors);
+
+  const payload = await page.evaluate(() => {
+    const c = state.carparks;
+    return {
+      total: c.length,
+      lta: c.filter((x) => x.o === "l").length,
+      unsourced: c.filter((x) => !x.o || x.o === "?").length,
+      ion: c.find((x) => x.i === "lta:23") || null,
+    };
+  });
+  check("the malls are on the map", payload.lta >= 25, payload.lta + " LTA carparks");
+  check("every carpark says which feed it came from", payload.unsourced === 0,
+    payload.unsourced + " without a source");
+  check("ION Orchard is one of them", payload.ion && /ION/i.test(payload.ion.a),
+    payload.ion ? payload.ion.a : "missing");
+  check("an LTA record carries no rate table",
+    payload.ion && payload.ion.r === undefined && payload.ion.rm === undefined);
+  check("and no capacity, because none is published",
+    payload.ion && payload.ion.k === undefined);
+
+  // The bug this whole refactor exists to prevent: before the record carried
+  // its source, an LTA mall had no rate table, and "no rate table" meant "price
+  // it with HDB's schedule". That would put a real-looking price on ION.
+  const priced = await page.evaluate(() => {
+    const c = state.carparks.find((x) => x.i === "lta:23");
+    const at = new Date("2026-08-19T14:00:00+08:00");
+    const f = feeForCarpark(c, at, 120);
+    const hdb = state.carparks.find((x) => x.o === "h");
+    return { total: f.total, why: f.unavailable, hdbTotal: feeForCarpark(hdb, at, 120).total };
+  });
+  check("a mall is not quoted a price",
+    priced.total === null && priced.why === "source-has-no-rates",
+    "total " + priced.total + " / " + priced.why);
+  check("specifically, it is not quoted HDB's price",
+    priced.total !== priced.hdbTotal, "HDB would have said $" + priced.hdbTotal);
+
+  // Orchard: the one place on the island where LTA malls and URA streets sit
+  // side by side, so the cheapest claim has to survive a mix of the two.
+  await page.evaluate(() => goTo(1.3036, 103.8318, 16));
+  await page.waitForTimeout(900);
+  const orchard = await page.evaluate(() => ({
+    rows: state.lastRows.length,
+    ltaRows: state.lastRows.filter((r) => r.c.o === "l").length,
+    cheapest: state.cheapestNearby,
+    ltaTotals: state.lastRows.filter((r) => r.c.o === "l").map((r) => r.fee.total),
+    tagged: [...document.querySelectorAll(".row[data-id]")]
+      .filter((e) => /Cheapest nearby/.test(e.textContent))
+      .map((e) => e.dataset.id),
+  }));
+  check("malls appear alongside the streets around Orchard", orchard.ltaRows > 0,
+    orchard.ltaRows + " of " + orchard.rows);
+  check("an unpriced mall never carries the cheapest badge",
+    orchard.tagged.every((id) => !id.startsWith("lta:")), JSON.stringify(orchard.tagged));
+  check("and is excluded from the cheapest figure itself",
+    orchard.ltaTotals.every((t) => t === null) && orchard.cheapest !== null,
+    "cheapest $" + orchard.cheapest);
+
+  // It has to say so in words on the card, not just leave a gap. Checked in the
+  // default nearest-first order: sorting by price pushes the unpriced past the
+  // end of the rendered list, which is the correct behaviour and would leave
+  // this check reading an empty DOM.
+  const said = await page.evaluate(() => {
+    const el = [...document.querySelectorAll(".row[data-id]")].find((e) => e.dataset.id === "lta:23");
+    return el ? el.querySelector(".price").textContent.trim() : null;
+  });
+  check("the card says there is no published price", said === "No published price", said);
+
+  await page.evaluate(() => {
+    const el = [...document.querySelectorAll(".row[data-id]")].find((e) => e.dataset.id === "lta:23");
+    el.click();
+  });
+  await page.waitForTimeout(600);
+  const detail = await page.evaluate(() => ({
+    fee: document.querySelector(".fee-box").textContent.replace(/\s+/g, " "),
+    body: document.querySelector("#list").textContent.replace(/\s+/g, " "),
+  }));
+  check("the panel explains who publishes what",
+    /DataMall/i.test(detail.fee) && /signboard/i.test(detail.fee),
+    detail.fee.slice(0, 120));
+  check("it does not cite HDB's schedule for a mall",
+    !/HDB’s published schedule|HDB's published schedule/.test(detail.body));
+  check("the lot count is shown without a made-up denominator",
+    !/of null lots|of undefined lots|of 0 lots/.test(detail.body));
+
+  // Sorting by price must not treat "no price" as free. Done last, because it
+  // reorders the list out from under everything above.
+  await page.evaluate(() => closeDetail());
+  await page.waitForTimeout(400);
+  await page.click("[data-sort='cheap']");
+  await page.waitForTimeout(700);
+  const order = await page.evaluate(() => state.lastRows.map((r) => r.fee.total));
+  const firstNull = order.indexOf(null);
+  check("sorted by price, the unpriced sink to the bottom",
+    firstNull === -1 || order.slice(firstNull).every((t) => t === null),
+    JSON.stringify(order.slice(0, 6)));
+
+  await ctx.close();
+}
+
 (async () => {
   if (!LIVE) await new Promise((r) => server.listen(PORT, r));
   const browser = await chromium.launch();
@@ -850,6 +971,7 @@ async function auditTablet(browser, errors) {
     await auditDesktop(browser, errors);
     await auditChrome(browser, errors);
     await auditVehicles(browser, errors);
+    await auditMalls(browser, errors);
     await auditWalk(browser, errors);
     await auditWhenPanel(browser, errors);
     await auditPriceChart(browser, errors);

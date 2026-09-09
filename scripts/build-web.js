@@ -38,6 +38,15 @@ const TYPE_CODES = {
   "OFF-STREET CAR PARK": "O",
 };
 
+// Which feed a record came from, and therefore which rate engine may price it.
+// The page used to work this out by asking whether the record carried a rate
+// table: one that did was URA, one that did not was HDB. That held while there
+// were exactly two sources. LTA is a third with NO rates at all, so under the
+// old test every mall would have been priced off HDB's transcribed schedule -
+// Ngee Ann City quoted at HDB's $1.20 per half hour, stated as fact. So the
+// origin is written down instead of inferred.
+const SOURCE_CODES = { hdb: "h", ura: "u", lta: "l" };
+
 function build() {
   const { carparks } = JSON.parse(fs.readFileSync(IN, "utf8"));
 
@@ -68,6 +77,7 @@ function build() {
       y: round5(p.lat),
       x: round5(p.lng),
       t: TYPE_CODES[p.type] || "?",
+      o: SOURCE_CODES[p.source] || "?",
       g: p.gantryHeight,
       f: indexOf(p.freeParking),
       s: indexOf(p.shortTermParking),
@@ -95,10 +105,18 @@ function build() {
     return rec;
   });
 
+  // A record whose origin we cannot name is a record the page cannot safely
+  // price, so this fails the build rather than shipping one that gets priced by
+  // whichever engine happens to be the fallback.
+  const orphan = c.filter((r) => r.o === "?");
+  if (orphan.length) {
+    throw new Error(orphan.length + " carparks have an unrecognised source, first: " + orphan[0].i);
+  }
+
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const out = {
     built: new Date().toISOString(), windows: table, rateTables,
-    types: TYPE_CODES, carparks: c,
+    types: TYPE_CODES, sources: SOURCE_CODES, carparks: c,
   };
   fs.writeFileSync(OUT, JSON.stringify(out));
   bundleRates();

@@ -118,10 +118,21 @@ findings, every one false, because it had been handed an empty error page and re
 rate changed at once". Each page must now contain a known landmark before any conclusion is drawn
 from it. A watchdog that cries wolf is worse than no watchdog.
 
-**Two rate engines, because two sources price differently.** HDB has one national schedule that had
-to be transcribed; URA ships a rate table with every carpark, so `src/ura-rates.js` reads prices off
-the record and hard-codes nothing. Both return the same shape, so the page prices a mixed list
-without knowing which source a row came from. Two things in URA's data are quiet traps:
+**Two rate engines for three sources, because they price differently — and one does not price at
+all.** HDB has one national schedule that had to be transcribed; URA ships a rate table with every
+carpark, so `src/ura-rates.js` reads prices off the record and hard-codes nothing; LTA publishes no
+prices whatsoever. Both engines return the same shape, so the page prices a mixed list without
+special-casing rows.
+
+Which engine runs is decided by a source letter the build writes into every record, and that is
+worth explaining because the earlier version got it wrong in a way that would have cost real money.
+The page used to ask "does this record carry a rate table?" — one that did was URA, one that did not
+was HDB. That held while there were exactly two sources. LTA is a third with no rate table, so under
+the old test every mall would have been priced off HDB's schedule: Ngee Ann City quoted at HDB's
+$1.20 per half hour, presented as fact. The origin is now written down instead of inferred, and
+`scripts/build-web.js` fails the build if any record's source is unrecognised.
+
+Two things in URA's data are quiet traps:
 
 - **The night rate is two rows, not one.** Angullia Park, 10.30pm—7am, publishes `$0.70 / 30 mins`
   *and* `$5.60 / 510 mins`. 510 minutes is the window, so the second row is the price of the whole
@@ -291,8 +302,15 @@ of day the app can never learn anything about. See [docs/COLLECTION.md](docs/COL
 
 ## Limits
 
-- **HDB and URA only.** Shopping-mall and private carparks need LTA DataMall and are not included
-  yet. The app says so rather than letting an empty list read as "no parking nearby".
+- **Prices come from HDB and URA only.** LTA DataMall adds 37 mall and attraction carparks — ION,
+  Ngee Ann City, VivoCity, Marina Square, Resorts World, Tampines Mall — but publishes *no rates at
+  all* for them, so they carry a live lot count and no price, and are excluded from every cheapest
+  claim. Other private carparks are not included. The app says so rather than letting an empty list
+  read as "no parking nearby".
+- **LTA DataMall's feed is mostly not LTA.** It returns 2,605 rows, of which 1,995 are HDB and 89
+  are URA carparks already collected from the sources that own them; only 37 are LTA's own. The
+  adapter drops the rest, because two records with one identity arriving from two feeds minutes
+  apart means the later one silently wins.
 - **URA publishes a live lot count for 89 of its 657 carparks**, and those need an API key, which a
   static page cannot hold. So URA carparks show a price and no live number, and say why. Their
   readings are still collected, because a day of history not collected is gone for good.

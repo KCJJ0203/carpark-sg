@@ -37,11 +37,12 @@ jobs:
         run: npm test
 
       - name: Refresh the carpark list and holidays
-        # Without URA_ACCESS_KEY the rebuild keeps the URA records already in
-        # data/carparks.json rather than shipping an HDB-only list, so a missing
-        # secret makes URA rates stale but never makes 657 carparks vanish.
+        # Without a source's key the rebuild keeps that source's existing records
+        # from data/carparks.json rather than shipping a shorter list, so a
+        # missing secret makes rates stale but never makes carparks vanish.
         env:
           URA_ACCESS_KEY: ${{ secrets.URA_ACCESS_KEY }}
+          LTA_ACCOUNT_KEY: ${{ secrets.LTA_ACCOUNT_KEY }}
         run: |
           node scripts/collect.js --carparks
           node scripts/build-web.js

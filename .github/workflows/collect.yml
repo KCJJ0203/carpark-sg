@@ -50,11 +50,12 @@ jobs:
           node-version: "20"
 
       - name: Collect one snapshot
-        # URA needs a free AccessKey. Without the secret this step still runs and
-        # still collects HDB - the URA source reports its own failure and is
-        # skipped for the tick. The laptop collector has the key locally.
+        # URA and LTA each need a free key. Without a secret this step still runs
+        # and still collects the others - each source reports its own failure and
+        # is skipped for the tick. The laptop collector has the keys locally.
         env:
           URA_ACCESS_KEY: ${{ secrets.URA_ACCESS_KEY }}
+          LTA_ACCOUNT_KEY: ${{ secrets.LTA_ACCOUNT_KEY }}
         run: node scripts/collect.js
 
       - name: Compress finished days

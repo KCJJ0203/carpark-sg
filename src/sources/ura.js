@@ -200,7 +200,12 @@ function toAvailability(rows, at) {
     source: SOURCE,
     at,
     lots: rows.map((r) => {
-      const available = Number(r.lotsAvailable);
+      // Number(null) and Number("") are both 0, and 0 lots free is a claim that
+      // the carpark is FULL. An absent count has to stay absent rather than be
+      // parsed into the most alarming number there is.
+      const raw = r.lotsAvailable;
+      const blank = raw === null || raw === undefined || String(raw).trim() === "";
+      const available = blank ? NaN : Number(raw);
       return {
         type: LOT_TYPES[r.lotType] || r.lotType,
         // URA reports what is free and never how many lots exist, so there is

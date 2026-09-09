@@ -137,3 +137,14 @@ test("a reported zero is zero lots free, not a missing reading", () => {
   const a = ura.toAvailability(AVAILABILITY.filter((r) => r.carparkNo === "P0113"), "t");
   assert.strictEqual(a.lots[0].available, 0);
 });
+
+test("a missing lot count is unknown, not zero", () => {
+  // Number(null) is 0, and "0 lots free" is a claim that the carpark is full.
+  // Found by the equivalent LTA test; the same flaw was latent here.
+  const row = { ...AVAILABILITY[0], lotsAvailable: null };
+  const a = ura.toAvailability([row], "2026-09-09T00:00:00Z");
+  assert.equal(a.lots[0].available, null);
+  const blank = ura.toAvailability(
+    [{ ...AVAILABILITY[0], lotsAvailable: "" }], "2026-09-09T00:00:00Z");
+  assert.equal(blank.lots[0].available, null);
+});
