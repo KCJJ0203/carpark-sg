@@ -444,9 +444,11 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
       <div class="where" id="where"></div>
       <div id="list"></div>
       <div class="note" id="scope">
-        <strong>Prices are for motor cars at HDB and URA carparks.</strong> Shopping-mall and private
-        carparks are not included yet, so an empty list here does not mean there is no parking
-        nearby. Hours with no published rate are shown as such rather than guessed at.
+        <strong>Prices are for motor cars at HDB and URA carparks.</strong> The 37 mall and
+        attraction carparks from LTA show live lot counts but no price, because LTA publishes none —
+        so they are never called cheapest. Other private carparks are not included at all, and an
+        empty list here does not mean there is no parking nearby. Hours with no published rate are
+        shown as such rather than guessed at.
       </div>
     </div>
   </div>
@@ -516,9 +518,26 @@ function forEngine(c) {
   };
 }
 
+// Which feed a record came from. This is written into the record by the build
+// rather than worked out here, because the thing it decides is which rate
+// engine may price the carpark - and guessing that wrong means quoting a price
+// that is not real. See SOURCE_CODES in scripts/build-web.js.
+const HDB = "h", URA = "u", LTA = "l";
+const sourceOf = (c) => c.o;
+
 // A record that points at a rate table brought its prices with it; one that
-// does not is priced from HDB's transcribed schedule.
-const hasOwnRates = (c) => c.r !== undefined;
+// does not is priced from HDB's transcribed schedule. True of URA, and only of
+// URA - LTA carries no rates and must never reach a rate engine at all.
+const hasOwnRates = (c) => sourceOf(c) === URA;
+
+// What each source can tell us about live lot counts, in one place, because
+// three different sentences were drifting apart across the card and the panel.
+const LOTS_UNKNOWN = {
+  [HDB]: "No live data for this carpark",
+  [URA]: "URA publishes live lot counts for only about one carpark in eight, and not for this one",
+  [LTA]: "No live count reported for this carpark right now",
+};
+const lotsUnknownText = (c) => LOTS_UNKNOWN[sourceOf(c)] || "No live data for this carpark";
 
 // Fifteen-minute resolution for a short stay, an hour for a long one. A linear
 // minute slider gives neither: 15 and 30 minutes are a real difference to a
@@ -549,6 +568,11 @@ const NOT_PRICED = {
 
 function feeForCarpark(c, start, minutes) {
   const rec = forEngine(c);
+  // LTA DataMall publishes lot counts and nothing else - no rate, no cap, no
+  // free-parking window. There is no engine that can price these, and falling
+  // back to HDB's schedule would put a made-up price on Ngee Ann City. So they
+  // are reported as unpriced, and stay out of every cheapest claim.
+  if (sourceOf(c) === LTA) return { ...NOT_PRICED, unavailable: "source-has-no-rates", minutes };
   // HDB's published schedule is for motor cars, and this project transcribed
   // exactly that. It says nothing about motorcycles or lorries, so those are
   // reported as not priced rather than quoted at the car rate - which would be
@@ -743,6 +767,10 @@ function feeText(fee) {
   if (fee.unavailable === "vehicle-not-priced") {
     return { text: "No " + vehicleWord() + " rate here", cls: "none" };
   }
+  // Not the same claim as "rate-not-published", which means a source that does
+  // publish prices has none for these particular hours. This one means nobody
+  // publishes a price for this carpark at all.
+  if (fee.unavailable === "source-has-no-rates") return { text: "No published price", cls: "none" };
   if (fee.unavailable === "rate-not-published") return { text: "Price not published", cls: "none" };
   if (fee.unavailable === "no-rates") return { text: "No rate published", cls: "none" };
   if (fee.unavailable) return { text: "Closed then", cls: "none" };
@@ -807,6 +835,7 @@ function pinHtml(row) {
   // are the list's wording; on the map they would be wider than the carpark.
   const label = row.fee.unavailable === "season-only" ? "Season"
     : row.fee.unavailable === "vehicle-not-priced" ? "\u2013"
+    : row.fee.unavailable === "source-has-no-rates" ? "\u2013"
     : row.fee.unavailable ? "Shut" : f.text;
   const lots = row.live && row.live.available !== null ? row.live.available : row.live ? "?" : "–";
   return '<div class="pin ' + pinClass(row) + (row.c.i === state.selected ? " chosen" : "") + '">' +
@@ -880,8 +909,7 @@ function cardHtml(row) {
   const isSaved = loadSaved().indexOf(c.i) !== -1;
   const occ = occupancy(live);
 
-  let lots = '<span class="meta">' + (hasOwnRates(c)
-    ? "No live count published for this one" : "No live data for this carpark") + "</span>";
+  let lots = '<span class="meta">' + lotsUnknownText(c) + "</span>";
   if (occ !== null) {
     const colour = occ > 0.2 ? "var(--ok)" : occ > 0.05 ? "var(--warn)" : "var(--bad)";
     lots = '<span class="lots"><span class="n" style="color:' + colour + '">' + live.available +
@@ -1330,9 +1358,7 @@ function renderDetail() {
   const day = start.toLocaleDateString("en-SG",
     { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Singapore" });
 
-  let lots = '<div class="meta">' + (hasOwnRates(c)
-    ? "URA publishes live lot counts for only about one carpark in eight, and not for this one."
-    : "No live data for this carpark") + "</div>";
+  let lots = '<div class="meta">' + lotsUnknownText(c) + ".</div>";
   if (occ !== null) {
     const colour = occ > 0.2 ? "var(--ok)" : occ > 0.05 ? "var(--warn)" : "var(--bad)";
     const age = live.at ? Math.round((now - live.at) / 60000) : null;
@@ -1372,6 +1398,12 @@ function renderDetail() {
         ? "URA prices " + vehicleWord() + "s at some carparks but not this one."
         : "HDB's published schedule covers motor cars only, so there is no " + vehicleWord() +
           " rate to quote here. Check the signboard.") + "</div>";
+  } else if (fee.unavailable === "source-has-no-rates") {
+    feeBody = '<div class="fee-total"><span class="fee-n none">No published price</span></div>' +
+      '<div class="note" style="margin:0">LTA DataMall reports how many lots are free here and ' +
+      "nothing else - no rate, no cap, no free-parking hours. Rather than borrow HDB's or URA's " +
+      "prices, which do not apply to this carpark, this site quotes nothing. The rate is on the " +
+      "signboard at the entrance.</div>";
   } else if (fee.unavailable === "rate-not-published") {
     feeBody = '<div class="fee-total"><span class="fee-n none">Price not published</span></div>' +
       '<div class="note" style="margin:0">URA publishes no rate for part of that stay here. It may ' +
@@ -1446,7 +1478,12 @@ function renderDetail() {
       '<div class="note">The walk is an estimate: ' + fmtDist(dist) + ' in a straight line at ' +
         "walking pace, with a quarter added because pavements are not straight. It is not a route, " +
         "and it does not know about the expressway in between.</div>" +
-      (hasOwnRates(c)
+      // Where the numbers came from, per source. A driver deciding whether to
+      // trust a price is entitled to know who published it and when.
+      (sourceOf(c) === LTA
+        ? '<div class="note">Lot counts come from LTA DataMall. It publishes no prices at all, ' +
+          "so this site shows none for this carpark rather than guessing one.</div>"
+        : sourceOf(c) === URA
         ? '<div class="note">Rates come from URA’s own Car Park Details service, so they are ' +
           "whatever URA currently publishes for this carpark.</div>"
         : '<div class="note">Rates are HDB’s published schedule, read on ' + R.RATES.checkedOn +
