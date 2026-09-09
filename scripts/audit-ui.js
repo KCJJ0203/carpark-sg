@@ -479,6 +479,47 @@ async function auditWhenPanel(browser, errors) {
     flat.distinct > 1 || !flat.saysSaving,
     flat.distinct + " distinct prices, saving claimed: " + flat.saysSaving);
 
+  // HDB charges the same all day, so in the heartlands the price question has
+  // no answer and the panel has to ask the one our own history CAN answer.
+  await page.evaluate(() => goTo(1.3343, 103.8563, 16));   // Toa Payoh
+  await page.waitForTimeout(1200);
+  const space = await page.evaluate(() => {
+    const head = document.querySelector("#when .fee-h").textContent;
+    const bars = [...document.querySelectorAll("#when .day-bars [data-hour]")];
+    const titles = bars.map((b) => b.getAttribute("title") || "");
+    const pctOf = (t) => { const m = /(\d+)%/.exec(t); return m ? +m[1] : null; };
+    const values = titles.map(pctOf).filter((v) => v !== null);
+    return {
+      head: head,
+      sub: document.querySelector(".verdict-sub").textContent,
+      verdict: document.querySelector(".verdict").textContent,
+      says: /usually free|lots usually free/.test(titles.join(" ")),
+      spread: values.length ? Math.max.apply(null, values) - Math.min.apply(null, values) : 0,
+      overnight: pctOf(titles[3] || ""),
+      midday: pctOf(titles[12] || ""),
+    };
+  });
+  check("where every price is the same, the panel asks about space instead",
+    /how full/i.test(space.head), space.head);
+  check("the heading says which question it is answering", /usually/i.test(space.head));
+  check("the bars are labelled as lots free, not dollars", space.says);
+  check("it explains that price cannot decide it here",
+    /charges .* whenever you arrive/i.test(space.sub), space.sub.slice(0, 90));
+  check("no saving is invented where every price is equal", !/save/i.test(space.sub));
+  // Residential carparks fill overnight and empty in the day. If the numbers do
+  // not show that, the history or the maths is wrong.
+  check("the daily cycle is actually visible", space.spread >= 10,
+    space.spread + " percentage points between the emptiest and fullest hour");
+  check("it is fuller overnight than at midday, as a housing estate should be",
+    space.overnight !== null && space.midday !== null && space.overnight < space.midday,
+    "3am " + space.overnight + "% vs noon " + space.midday + "%");
+
+  // And back in town, where rates really do change, it asks about money again.
+  await page.evaluate(() => goTo(1.3006, 103.8388, 16));
+  await page.waitForTimeout(1200);
+  check("in town it goes back to asking about price",
+    await page.evaluate(() => /cheapest/i.test(document.querySelector("#when .fee-h").textContent)));
+
   // This runs on every pan, so it cannot be slow.
   const ms = await page.evaluate(() => {
     const t0 = performance.now();

@@ -164,6 +164,19 @@ field, with chips for the answers people actually give ("in 1 h", "7pm"). Both r
 `12.00pm → 2.00pm`, because the question is "what will I pay", and that depends on when you leave as
 much as when you arrive.
 
+**Where price cannot decide it, our own history can.** HDB charges the same rate all day, so across
+most of the island "when is it cheapest" has no answer at all. There the panel switches question and
+says so in its heading: *how full carparks near here usually are, hour by hour*, from the readings
+this project has been collecting since August. Around Toa Payoh that reads 44% free overnight, 67%
+at midday and 56% by 9pm — a housing estate filling up as people come home, which is both the
+expected shape and the check that the numbers are real.
+
+It is the median of the ten nearest carparks, not the emptiest of twenty-five: the emptiest is
+always some large carpark sitting near 90%, which washes the daily cycle out completely and
+describes one carpark rather than an area. Only HDB has this at all — URA reports lots free and
+never lots total, so 657 carparks have no pattern to learn from, and hours with too few readings
+stay blank rather than being filled in.
+
 **Advice has to be reachable.** The first version of the verdict cheerfully recommended arriving at
 2am, because that was genuinely the cheapest hour. It was true and useless: nobody waits thirteen
 hours to save $2.40, and on today's date those hours have already gone. So the verdict only ever
