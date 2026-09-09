@@ -1,7 +1,8 @@
 # Carpark SG
 
-Live HDB carpark availability and parking fees across Singapore. Open the map, see what every
-carpark near you costs for the stay you have in mind, and how full it is right now.
+Parking fees and live availability across Singapore, for **2,929 carparks** — every HDB
+carpark and every URA carpark and on-street bay. Open the map, see what each one costs for the stay
+you have in mind, and how full it is right now.
 
 **→ [kcjj0203.github.io/carpark-sg](https://kcjj0203.github.io/carpark-sg/)**
 
@@ -17,7 +18,9 @@ open-data APIs directly.
 - **Park now or later** — rates change at 5pm, at 10.30pm and on Sundays, so a two-hour stay at
   Albert Centre costs $5.60 arriving at 2pm and $2.40 arriving at 6pm. The app prices each half
   hour at whatever rate applies then, so a stay crossing a boundary stays right.
-- **Filter by carpark type** — multi-storey, surface, basement or covered
+- **Filter by carpark type** — multi-storey, surface, basement, covered, and for URA the
+  distinction that actually changes the trip: an off-street lot you drive into, or a row of
+  parallel bays on a public road
 - **Nearest carparks** by geolocation, or by searching any Singapore address, building or postal code
 - **Live availability** — lots free right now, with a fullness bar
 - **Free right now** — 1,671 HDB carparks are free on Sundays and public holidays, and the app knows
@@ -33,10 +36,13 @@ open-data APIs directly.
 | [data.gov.sg](https://data.gov.sg) — HDB Carpark Information | 2,270 carparks: location, type, gantry height, parking hours | open |
 | [data.gov.sg](https://data.gov.sg) — Carpark Availability | live lot counts, ~2,015 carparks reporting | open |
 | [data.gov.sg](https://data.gov.sg) — Public Holidays (MOM) | 2020-2027, drives "free right now" | open |
+| [URA Data Service](https://eservice.ura.gov.sg/maps/api/) — Car Park Details | 657 carparks: location, capacity, **and their rates** | free AccessKey |
+| [URA Data Service](https://eservice.ura.gov.sg/maps/api/) — Car Park Availability | live lot counts, 89 carparks reporting | free AccessKey |
 | [OneMap](https://www.onemap.gov.sg) | address search, and the map tiles | open |
 | [HDB](https://www.hdb.gov.sg/parking/other-parking-matters/shortterm-parking/shortterm-parking-charges) — Short-Term Parking Charges | the rate schedule | published web page |
 
-All official, all permitted, no API key, no scraping. That was a deliberate choice — see
+All official, all permitted, no scraping. Only URA needs a key, it is free, and it is the one source
+that publishes its own prices rather than making us read them off a web page — see
 [the lesson below](#what-went-wrong-and-what-it-taught).
 
 ## Design decisions worth explaining
@@ -87,11 +93,31 @@ findings, every one false, because it had been handed an empty error page and re
 rate changed at once". Each page must now contain a known landmark before any conclusion is drawn
 from it. A watchdog that cries wolf is worse than no watchdog.
 
-**One rate engine, not two.** Pricing is rate windows, caps and boundary crossings. The page needs
+**Two rate engines, because two sources price differently.** HDB has one national schedule that had
+to be transcribed; URA ships a rate table with every carpark, so `src/ura-rates.js` reads prices off
+the record and hard-codes nothing. Both return the same shape, so the page prices a mixed list
+without knowing which source a row came from. Two things in URA's data are quiet traps:
+
+- **The night rate is two rows, not one.** Angullia Park, 10.30pm—7am, publishes `$0.70 / 30 mins`
+  *and* `$5.60 / 510 mins`. 510 minutes is the window, so the second row is the price of the whole
+  night, not a second rate: read as one, seventeen half hours bill $11.90 for a night URA sells at
+  $5.60. The rule — a row whose charging unit equals the window length is a flat price — was
+  checked against every such pair in the live data before it was written: 146 of 146, and in all 146
+  the flat price is the cheaper one. All 152 flat rows cross midnight, which is why the cap is
+  applied per stay-in-a-window and not per calendar day; grouping by day would have quietly
+  overcharged every Saturday night and every holiday eve.
+- **An absent rate is not a free rate.** URA writes an explicit `$0.00 / 0 mins` where parking really
+  is free — 899 rows do. But 145 rows across 88 carparks carry no rate fields at all, and every one
+  of those is an on-street bay overnight or in the morning peak. That may mean free and may equally
+  mean no parking allowed. The app prices neither: it says the price is not published and tells you
+  to read the signboard, because guessing "free" is the guess that costs money.
+
+**One rate engine per source, bundled once.** Pricing is rate windows, caps and boundary crossings. The page needs
 it and so does Node, and re-typing it into the HTML would guarantee the two drifted. `build-web.js`
-bundles `src/rates.js` and `src/windows.js` verbatim into `web/rates.js`, refuses to emit a bundle
-that still has an unresolved `require()`, and prices a known stay through the bundle as a build-time
-check.
+bundles `src/rates.js`, `src/ura-rates.js` and `src/windows.js` verbatim into `web/rates.js`,
+refuses to emit a bundle that still has an unresolved `require()`, and prices a known stay through
+each engine as a build-time check — including a whole night at Angullia Park, which has to come
+back $5.60 and not $11.90.
 
 **Pins collapse rather than overlap.** A pin carrying both a price and a lot count is wide, and in
 town carparks sit close enough that the labels would pile into an unreadable heap. The nearest pin
@@ -101,15 +127,18 @@ text on it, and what survives is the one you were most likely to be reading.
 ## Running it
 
 ```bash
-npm test                             # 102 tests, no network needed
+npm test                             # 147 tests, no network needed
 node scripts/collect.js --carparks   # rebuild the carpark list + one snapshot
 node scripts/build-web.js            # regenerate the files the page downloads
 node scripts/check-rates.js          # re-read HDB's rates (opens a browser window)
 node scripts/coverage.js             # how much history actually landed, per day
+node scripts/audit-ura.js            # what URA's adapter produced, priced end to end
 ```
 
 `playwright` is the only dependency, and only the rate check uses it — the tests and the site need
-nothing installed.
+nothing installed. URA's free AccessKey goes in `URA_ACCESS_KEY` or
+`~/.claude/.secrets/ura-access-key.txt`; without it the collector keeps the URA records it already
+has and says so, rather than rebuilding the list as HDB-only and silently deleting 657 carparks.
 
 The site is plain files in `web/`. Serve that directory with anything.
 
@@ -144,8 +173,16 @@ of day the app can never learn anything about. See [docs/COLLECTION.md](docs/COL
 
 ## Limits
 
-- **HDB carparks only.** Shopping-mall and URA carparks need separate API keys and are not included
+- **HDB and URA only.** Shopping-mall and private carparks need LTA DataMall and are not included
   yet. The app says so rather than letting an empty list read as "no parking nearby".
+- **URA publishes a live lot count for 89 of its 657 carparks**, and those need an API key, which a
+  static page cannot hold. So URA carparks show a price and no live number, and say why. Their
+  readings are still collected, because a day of history not collected is gone for good.
+- **URA reports how many lots are free and never how many exist**, so there is no fullness bar for
+  them and they cannot feed the predictions. `parkCapacity` was checked as a substitute and
+  rejected: three carparks in one live sample reported more lots free than their stated capacity.
+- **87 URA carparks cannot be priced for an overnight stay**, because URA publishes no rate for
+  those hours. See the note above.
 - Distances are straight-line, not walking routes.
 - Availability is whatever the operator reports, and it can lag reality.
 - Fees cover **motor cars**. Motorcycles, heavy vehicles and the loading bays with their own

@@ -26,8 +26,8 @@ Eight live carparks have no location record. They are dropped and counted, never
 
 | source | status | needs |
 |---|---|---|
-| **HDB** (data.gov.sg) | **v1** | nothing |
-| URA | later | free AccessKey + daily token; also carries RATES |
+| **HDB** (data.gov.sg) | **shipped** | nothing |
+| **URA** (URA Data Service) | **shipped 9 Sep 2026** | free AccessKey + daily token; carries its own RATES |
 | LTA DataMall | later | free AccountKey; covers malls and private carparks |
 
 **Rates are not in any dataset.** Every dataset on data.gov.sg was searched; none carries a price.
@@ -35,6 +35,11 @@ HDB publishes its schedule as a web page, so `src/rates.js` transcribes it and p
 read, and `scripts/check-rates.js` re-reads the page monthly and fails if anything moved. When URA
 arrives it brings machine-readable rates with it, which is a reason to prefer its own adapter's
 figures over anything transcribed — a source-agnostic `feeFor` per adapter, not one global table.
+
+URA arrived the way this section promised: one new adapter (`src/sources/ura.js`), one new fee
+engine (`src/ura-rates.js`), one line added to `SOURCES` in the collector. Storage, matching and
+display were untouched. The one assumption that did have to give was that every availability
+reading has a total — see the traps below.
 
 **Every record carries its `source`.** IDs are namespaced (`hdb:ACB`) so two sources can never
 collide, and so the UI can say where a number came from. Adding a source means writing one adapter
@@ -53,11 +58,19 @@ Both are deliberately source-agnostic. An adapter's only job is to produce these
   freeParking,                 // parsed windows, [] when never free
   shortTermParking,            // parsed windows, [] when none
   parkingSystem,               // electronic vs coupon: decides per-minute vs half-hour rounding
-  nightParking }               // Night Parking Scheme: permits 10.30pm-7am AND caps it at $5
+  nightParking,                // Night Parking Scheme: permits 10.30pm-7am AND caps it at $5.
+                               // HDB only. null at URA means "this scheme does not apply here",
+                               // which is NOT the same claim as "not allowed overnight"
+  capacity,                    // how many lots exist. URA publishes it, HDB does not. NOT a live count
+  rates }                      // a source that publishes its own prices brings them here and is
+                               // priced by its own engine. null for HDB, whose schedule is transcribed
 
 // How full it is. Changes constantly; collected every few minutes.
 { id: "hdb:ACB", source: "hdb", at,        // ISO timestamp
   lots: [ { type: "C", total, available } ] }   // C=car, Y=motorcycle, H=heavy
+// `total` may be null: URA reports how many lots are FREE and never how many exist. Such a reading
+// is stored, because readings cannot be collected later, but it can never become a proportion - so
+// the predictions skip it and the UI draws no fullness bar for it.
 ```
 
 ## Known data traps
@@ -76,6 +89,17 @@ this app's version of a wrong price.
    15 minutes is shown as stale rather than presented as live truth.
 5. **No rates in the HDB dataset.** Rates must come from a verified source (URA API, or HDB's
    published rate card confirmed at build time) — never from memory.
+6. **URA prices the night as TWO rows**: an accruing rate, and a flat price whose charging unit is
+   the whole window. Reading the flat one as a second rate bills $11.90 for a night sold at $5.60.
+   All 152 flat rows cross midnight, so the cap must be applied per stay-in-a-window and never per
+   calendar day.
+7. **A URA row with no rate fields is not a `$0.00` row.** URA writes `$0.00 / 0 mins` where parking
+   is genuinely free. 145 rows across 88 carparks carry no rate at all, always on-street and always
+   overnight or in the morning peak. That may mean free and may mean no parking; the app asserts
+   neither and says the price is not published.
+8. **URA `parkCapacity` is not an availability total.** Three carparks in one live sample reported
+   more lots free than their stated capacity, so the two figures do not describe the same thing.
+   Never divide one by the other.
 
 ## Storage
 
@@ -94,7 +118,9 @@ usually full at 7pm?"* — a prediction from data we collected ourselves.
 
 ## Honest limits to state in the UI
 
-- **HDB carparks only in v1.** Malls are not covered yet. The app must say so rather than let a
-  user conclude there is no parking nearby.
+- **HDB and URA carparks.** Malls and private carparks are not covered yet. The app must say so
+  rather than let a user conclude there is no parking nearby.
+- **URA publishes a live lot count for only 89 of its 657 carparks**, and reaching it needs a key a
+  static page cannot hold. Those carparks show a price and no live number, and say which.
 - Availability is what the operator reports; it can lag reality.
 - Distance is straight-line, not walking distance.

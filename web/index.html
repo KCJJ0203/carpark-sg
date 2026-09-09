@@ -219,8 +219,8 @@
       <div class="where" id="where"></div>
       <div id="list"></div>
       <div class="note" id="scope">
-        <strong>HDB carparks only.</strong> Shopping-mall and URA carparks are not included yet, so an
-        empty list here does not mean there is no parking nearby.
+        <strong>HDB and URA carparks.</strong> Shopping-mall and private carparks are not included
+        yet, so an empty list here does not mean there is no parking nearby.
       </div>
     </div>
   </div>
@@ -232,9 +232,14 @@
 const $ = (s) => document.querySelector(s);
 const R = window.CarparkRates.rates;
 const W = window.CarparkRates.windows;
+// URA carparks publish their own prices, so they are priced by their own
+// engine off their own rate table. Both engines return the same shape, which
+// is what lets one list mix the two sources without special-casing every row.
+const U = window.CarparkRates.ura;
 
 const state = {
-  carparks: null, windows: [], holidays: new Set(), patterns: {}, live: null, fetchedAt: null,
+  carparks: null, windows: [], rateTables: [], holidays: new Set(), patterns: {},
+  live: null, fetchedAt: null,
   me: null,                              // where the browser says you are, once granted
   centre: { lat: 1.3521, lng: 103.8198 },
   selected: null,
@@ -268,11 +273,17 @@ function forEngine(c) {
     nightParking: !!c.n,
     shortTermParking: state.windows[c.s] || [],
     freeParking: state.windows[c.f] || [],
+    rates: c.r === undefined ? null : (state.rateTables[c.r] || []),
   };
 }
 
+// A record that points at a rate table brought its prices with it; one that
+// does not is priced from HDB's transcribed schedule.
+const hasOwnRates = (c) => c.r !== undefined;
+
 const stayStart = () => state.stay.start ? new Date(state.stay.start) : new Date();
-const priceOf = (c) => R.feeFor(forEngine(c), stayStart(), state.stay.minutes, isHoliday);
+const priceOf = (c) => (hasOwnRates(c) ? U : R)
+  .feeFor(forEngine(c), stayStart(), state.stay.minutes, isHoliday);
 const money = (n) => "$" + n.toFixed(2);
 
 // Mirrors src/quality.js. A large carpark reporting EVERY lot free is almost
@@ -306,13 +317,19 @@ function typicalNow(id, now) {
 
 const TYPE_NAMES = {
   S: "Surface", M: "Multi-storey", B: "Basement", C: "Covered",
-  E: "Mechanised", X: "Mechanised + surface", U: "Surface + multi-storey", "?": "Carpark",
+  E: "Mechanised", X: "Mechanised + surface", U: "Surface + multi-storey",
+  // URA's two. On-street is a row of bays on a public road - parallel parking,
+  // pay by coupon or app - and it is a different proposition from a lot you
+  // drive into, so it is worth its own filter.
+  T: "On-street", O: "Off-street", "?": "Carpark",
 };
 const FILTERS = [
   { key: "M", label: "Multi-storey" },
   { key: "S", label: "Surface" },
   { key: "B", label: "Basement" },
   { key: "C", label: "Covered" },
+  { key: "T", label: "On-street" },
+  { key: "O", label: "Off-street" },
 ];
 
 // Sorting answers a different question from filtering, and only one order can
@@ -352,6 +369,7 @@ async function loadStatic() {
   ]);
   state.carparks = c.carparks;
   state.windows = c.windows;
+  state.rateTables = c.rateTables || [];
   state.holidays = new Set(h);
   state.patterns = (p && p.data) || {};
 }
@@ -428,6 +446,11 @@ function occupancy(live) {
 
 function feeText(fee) {
   if (fee.unavailable === "season-only") return { text: "Season only", cls: "none" };
+  // "Closed then" is a claim about the carpark. Where URA simply publishes no
+  // rate for those hours we do not know whether it is closed, free, or barred
+  // to parking, so the label says only what is true: we have no price.
+  if (fee.unavailable === "rate-not-published") return { text: "Price not published", cls: "none" };
+  if (fee.unavailable === "no-rates") return { text: "No rate published", cls: "none" };
   if (fee.unavailable) return { text: "Closed then", cls: "none" };
   if (fee.total === 0) return { text: "Free", cls: "free" };
   return { text: money(fee.total), cls: "" };
@@ -546,7 +569,8 @@ function cardHtml(row) {
   const isSaved = loadSaved().indexOf(c.i) !== -1;
   const occ = occupancy(live);
 
-  let lots = '<span class="meta">No live data for this carpark</span>';
+  let lots = '<span class="meta">' + (hasOwnRates(c)
+    ? "No live count published for this one" : "No live data for this carpark") + "</span>";
   if (occ !== null) {
     const colour = occ > 0.2 ? "var(--ok)" : occ > 0.05 ? "var(--warn)" : "var(--bad)";
     lots = '<span class="lots"><span class="n" style="color:' + colour + '">' + live.available +
@@ -562,6 +586,7 @@ function cardHtml(row) {
     fee.central && !fee.peak ? '<span class="tag dear">Central Area</span>' : "",
     fee.capApplied === "night" ? '<span class="tag">Night cap</span>' : "",
     fee.capApplied === "day" ? '<span class="tag">Daily cap</span>' : "",
+    fee.capApplied === "window" ? '<span class="tag">Flat night rate</span>' : "",
     live && looksUnreported(live.total, live.available)
       ? '<span class="tag stale">Reports every lot free - sensors may be down</span>' : "",
   ].filter(Boolean).join("");
@@ -649,7 +674,9 @@ function renderDetail() {
   const day = start.toLocaleDateString("en-SG",
     { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Singapore" });
 
-  let lots = '<div class="meta">No live data for this carpark</div>';
+  let lots = '<div class="meta">' + (hasOwnRates(c)
+    ? "URA publishes live lot counts for only about one carpark in eight, and not for this one."
+    : "No live data for this carpark") + "</div>";
   if (occ !== null) {
     const colour = occ > 0.2 ? "var(--ok)" : occ > 0.05 ? "var(--warn)" : "var(--bad)";
     const age = live.at ? Math.round((now - live.at) / 60000) : null;
@@ -680,6 +707,14 @@ function renderDetail() {
     feeBody = '<div class="fee-total"><span class="fee-n none">Season parking only</span></div>' +
       '<div class="note" style="margin:0">HDB does not offer short-term parking here, so there is no ' +
       "hourly rate to quote.</div>";
+  } else if (fee.unavailable === "rate-not-published") {
+    feeBody = '<div class="fee-total"><span class="fee-n none">Price not published</span></div>' +
+      '<div class="note" style="margin:0">URA publishes no rate for part of that stay here. It may ' +
+      "mean the parking is free then, and it may mean parking is not allowed at all - the data does " +
+      "not say which, and guessing free is the guess that earns a fine. Check the signboard.</div>";
+  } else if (fee.unavailable === "no-rates") {
+    feeBody = '<div class="fee-total"><span class="fee-n none">No published rate</span></div>' +
+      '<div class="note" style="margin:0">URA lists this carpark but publishes no car rates for it.</div>';
   } else if (fee.unavailable) {
     feeBody = '<div class="fee-total"><span class="fee-n none">Not open for that stay</span></div>' +
       '<div class="note" style="margin:0">' + (c.n
@@ -690,16 +725,25 @@ function renderDetail() {
       '<div class="brow"><span>' + l.label + (l.from ? " &middot; " + at(l.from) + "–" + at(l.to) : "") +
       "</span><span>" + (l.amount < 0 ? "−" : "") + money(Math.abs(l.amount)) + "</span></div>").join("");
 
+    const own = hasOwnRates(c);
     const extras = [
       fee.couponTotal !== null && fee.couponTotal !== fee.total
-        ? "Coupon carpark. Paper coupons come in half hours, so displaying them costs " +
-          money(fee.couponTotal) + "; the Parking.sg app charges the " + money(fee.total) + " above."
+        ? "Coupon carpark. A paper coupon buys a whole block however little of it you use, so " +
+          "displaying them costs " + money(fee.couponTotal) + "; the Parking.sg app charges the " +
+          money(fee.total) + " above."
         : "",
-      fee.grace ? "Under the 15-minute grace period at an electronic carpark, so there is nothing to pay." : "",
-      !fee.grace && fee.method === "electronic"
+      // The 15-minute grace period and the peak-hour surcharge are HDB rules.
+      // URA publishes neither, so neither is claimed at a URA carpark.
+      !own && fee.grace
+        ? "Under the 15-minute grace period at an electronic carpark, so there is nothing to pay." : "",
+      !own && !fee.grace && fee.method === "electronic"
         ? "Charged by the minute, and free if you leave within 15 minutes of entering." : "",
-      fee.peak
+      !own && fee.peak
         ? "One of the 12 HDB carparks with peak-hour surcharges. The daily and nightly caps do not apply here."
+        : "",
+      own && fee.capApplied === "window"
+        ? "URA sells the whole of that period for a flat price, which is less than the half hours " +
+          "would add up to, so that is what you pay."
         : "",
     ].filter(Boolean);
 
@@ -722,13 +766,19 @@ function renderDetail() {
         (c.g ? '<span class="dot"></span><span>' + c.g + "m gantry</span>" : "") +
         (fee.central ? '<span class="dot"></span><span>Central Area</span>' : "") +
         (c.n ? '<span class="dot"></span><span>Night parking</span>' : "") +
-        (c.c ? '<span class="dot"></span><span>Coupon</span>' : "") + "</div>" +
+        (c.c ? '<span class="dot"></span><span>Coupon</span>' : "") +
+        // How many lots exist, which URA publishes and HDB does not. It is not
+        // a live count and is labelled so it cannot be read as one.
+        (c.k ? '<span class="dot"></span><span>' + c.k + " lots in total</span>" : "") + "</div>" +
       lots + usualLine +
       '<div class="fee-box"><div class="fee-h">Cost of this stay</div>' + feeBody + "</div>" +
       '<a class="maps" href="https://www.google.com/maps/dir/?api=1&destination=' + c.y + "," + c.x +
         '" target="_blank" rel="noopener"><button type="button">Directions</button></a>' +
-      '<div class="note">Rates are HDB’s published schedule, read on ' + R.RATES.checkedOn +
-        '. <a href="' + R.RATES.source + '" target="_blank" rel="noopener">Check them yourself</a>.</div>' +
+      (hasOwnRates(c)
+        ? '<div class="note">Rates come from URA’s own Car Park Details service, so they are ' +
+          "whatever URA currently publishes for this carpark.</div>"
+        : '<div class="note">Rates are HDB’s published schedule, read on ' + R.RATES.checkedOn +
+          '. <a href="' + R.RATES.source + '" target="_blank" rel="noopener">Check them yourself</a>.</div>') +
     "</div>";
   $("#back").addEventListener("click", closeDetail);
 }

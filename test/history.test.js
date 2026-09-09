@@ -45,3 +45,27 @@ test("skips carparks reporting no usable totals", () => {
   const s = encodeSnapshot(NOW, [{ id: "hdb:X", source: "hdb", at: null, lots: [{ type: "C", total: null, available: null }] }]);
   assert.strictEqual(s, null, "nothing worth writing");
 });
+
+// URA reports how many lots are free and never how many exist. Dropping those
+// readings would throw away the only record we will ever have of that moment.
+test("keeps a reading that has a count but no total", () => {
+  const line = encodeSnapshot(new Date("2026-09-09T02:00:00Z"), [
+    { id: "ura:S0049", source: "ura", at: null, lots: [{ type: "C", total: null, available: 95 }] },
+  ]);
+  assert.deepStrictEqual(JSON.parse(line).r, [["ura:S0049", "C", null, 95, null]]);
+});
+
+test("still drops a reading that says nothing at all", () => {
+  const line = encodeSnapshot(new Date("2026-09-09T02:00:00Z"), [
+    { id: "hdb:ACB", source: "hdb", at: null, lots: [{ type: "C", total: null, available: null }] },
+  ]);
+  assert.strictEqual(line, null);
+});
+
+// A total-less reading cannot become "40% free", so the predictions must keep
+// ignoring it rather than inventing a denominator.
+test("a total-less reading teaches the predictions nothing", () => {
+  const { accumulate } = require("../src/patterns");
+  const acc = accumulate([{ t: "2026-08-19T01:00:00Z", r: [["ura:S0049", "C", null, 95, null]] }], () => false);
+  assert.strictEqual(acc["ura:S0049"], undefined);
+});

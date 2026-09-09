@@ -5,7 +5,9 @@
 // worse than showing nothing - the whole point of the app is the number being
 // current. So availability is network-only and simply absent when offline.
 
-const VERSION = "v2";
+// v3: URA carparks and their rate tables joined the payload, so every cached
+// copy of carparks.min.json and rates.js is now short by 657 carparks.
+const VERSION = "v3";
 const TILES = "tiles-v1";
 const SHELL = [
   "./", "./index.html", "./carparks.min.json", "./holidays.json", "./patterns.json",

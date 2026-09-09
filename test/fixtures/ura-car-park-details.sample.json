@@ -1,0 +1,370 @@
+[
+ {
+  "weekdayMin": "0 mins",
+  "weekdayRate": "$0.00",
+  "ppCode": "A0004",
+  "parkingSystem": "C",
+  "ppName": "ALIWAL ST ",
+  "vehCat": "Car",
+  "satdayMin": "0 mins",
+  "satdayRate": "$0.00",
+  "sunPHMin": "0 mins",
+  "sunPHRate": "$0.00",
+  "geometries": [
+   {
+    "coordinates": "31063.017,31665.0933"
+   }
+  ],
+  "startTime": "07.00 AM",
+  "parkCapacity": 69,
+  "endTime": "08.30 AM"
+ },
+ {
+  "weekdayMin": "30 mins",
+  "weekdayRate": "$0.60",
+  "ppCode": "A0004",
+  "parkingSystem": "C",
+  "ppName": "ALIWAL ST ",
+  "vehCat": "Car",
+  "satdayMin": "30 mins",
+  "satdayRate": "$0.60",
+  "sunPHMin": "30 mins",
+  "sunPHRate": "$0.60",
+  "geometries": [
+   {
+    "coordinates": "31063.017,31665.0933"
+   }
+  ],
+  "startTime": "08.30 AM",
+  "parkCapacity": 69,
+  "endTime": "05.00 PM"
+ },
+ {
+  "weekdayMin": "30 mins",
+  "weekdayRate": "$0.60",
+  "ppCode": "A0004",
+  "parkingSystem": "C",
+  "ppName": "ALIWAL ST ",
+  "vehCat": "Car",
+  "satdayMin": "30 mins",
+  "satdayRate": "$0.60",
+  "sunPHMin": "30 mins",
+  "sunPHRate": "$0.60",
+  "geometries": [
+   {
+    "coordinates": "31063.017,31665.0933"
+   }
+  ],
+  "startTime": "05.00 PM",
+  "parkCapacity": 69,
+  "endTime": "10.00 PM"
+ },
+ {
+  "weekdayMin": "0 mins",
+  "weekdayRate": "$0.00",
+  "ppCode": "A0004",
+  "parkingSystem": "C",
+  "ppName": "ALIWAL ST ",
+  "vehCat": "Car",
+  "satdayMin": "0 mins",
+  "satdayRate": "$0.00",
+  "sunPHMin": "0 mins",
+  "sunPHRate": "$0.00",
+  "geometries": [
+   {
+    "coordinates": "31063.017,31665.0933"
+   }
+  ],
+  "startTime": "10.00 PM",
+  "parkCapacity": 69,
+  "endTime": "07.00 AM"
+ },
+ {
+  "weekdayMin": "0 mins",
+  "weekdayRate": "$0.00",
+  "ppCode": "A0004",
+  "parkingSystem": "C",
+  "ppName": "ALIWAL ST ",
+  "vehCat": "Motorcycle",
+  "satdayMin": "0 mins",
+  "satdayRate": "$0.00",
+  "sunPHMin": "0 mins",
+  "sunPHRate": "$0.00",
+  "geometries": [
+   {
+    "coordinates": "31063.017,31665.0933"
+   }
+  ],
+  "startTime": "07.00 AM",
+  "parkCapacity": 4,
+  "endTime": "08.30 AM"
+ },
+ {
+  "weekdayMin": "3 mins",
+  "weekdayRate": "$0.01",
+  "ppCode": "A0004",
+  "parkingSystem": "C",
+  "ppName": "ALIWAL ST ",
+  "vehCat": "Motorcycle",
+  "satdayMin": "3 mins",
+  "satdayRate": "$0.01",
+  "sunPHMin": "3 mins",
+  "sunPHRate": "$0.01",
+  "geometries": [
+   {
+    "coordinates": "31063.017,31665.0933"
+   }
+  ],
+  "startTime": "08.30 AM",
+  "parkCapacity": 4,
+  "endTime": "10.00 PM"
+ },
+ {
+  "weekdayMin": "0 mins",
+  "weekdayRate": "$0.00",
+  "ppCode": "A0004",
+  "parkingSystem": "C",
+  "ppName": "ALIWAL ST ",
+  "vehCat": "Motorcycle",
+  "satdayMin": "0 mins",
+  "satdayRate": "$0.00",
+  "sunPHMin": "0 mins",
+  "sunPHRate": "$0.00",
+  "geometries": [
+   {
+    "coordinates": "31063.017,31665.0933"
+   }
+  ],
+  "startTime": "10.00 PM",
+  "parkCapacity": 4,
+  "endTime": "07.00 AM"
+ },
+ {
+  "weekdayMin": "30 mins",
+  "weekdayRate": "$1.30",
+  "ppCode": "A0007",
+  "parkingSystem": "B",
+  "ppName": "ANGULLIA PARK OFF ST ",
+  "vehCat": "Car",
+  "satdayMin": "30 mins",
+  "satdayRate": "$1.30",
+  "sunPHMin": "30 mins",
+  "sunPHRate": "$0.70",
+  "geometries": [
+   {
+    "coordinates": "27582.895,31962.0601"
+   }
+  ],
+  "startTime": "07.00 AM",
+  "parkCapacity": 268,
+  "endTime": "11.00 AM"
+ },
+ {
+  "weekdayMin": "30 mins",
+  "weekdayRate": "$1.50",
+  "ppCode": "A0007",
+  "parkingSystem": "B",
+  "ppName": "ANGULLIA PARK OFF ST ",
+  "vehCat": "Car",
+  "satdayMin": "30 mins",
+  "satdayRate": "$1.50",
+  "sunPHMin": "30 mins",
+  "sunPHRate": "$0.80",
+  "geometries": [
+   {
+    "coordinates": "27582.895,31962.0601"
+   }
+  ],
+  "startTime": "11.00 AM",
+  "parkCapacity": 268,
+  "endTime": "05.00 PM"
+ },
+ {
+  "weekdayMin": "30 mins",
+  "weekdayRate": "$0.80",
+  "ppCode": "A0007",
+  "parkingSystem": "B",
+  "ppName": "ANGULLIA PARK OFF ST ",
+  "vehCat": "Car",
+  "satdayMin": "30 mins",
+  "satdayRate": "$0.80",
+  "sunPHMin": "30 mins",
+  "sunPHRate": "$0.80",
+  "geometries": [
+   {
+    "coordinates": "27582.895,31962.0601"
+   }
+  ],
+  "startTime": "05.00 PM",
+  "parkCapacity": 268,
+  "endTime": "10.30 PM"
+ },
+ {
+  "weekdayMin": "30 mins",
+  "weekdayRate": "$0.70",
+  "ppCode": "A0007",
+  "parkingSystem": "B",
+  "ppName": "ANGULLIA PARK OFF ST ",
+  "vehCat": "Car",
+  "satdayMin": "30 mins",
+  "satdayRate": "$0.70",
+  "sunPHMin": "30 mins",
+  "sunPHRate": "$0.70",
+  "geometries": [
+   {
+    "coordinates": "27582.895,31962.0601"
+   }
+  ],
+  "startTime": "10.30 PM",
+  "parkCapacity": 268,
+  "endTime": "07.00 AM"
+ },
+ {
+  "weekdayMin": "510 mins",
+  "weekdayRate": "$5.60",
+  "ppCode": "A0007",
+  "parkingSystem": "B",
+  "ppName": "ANGULLIA PARK OFF ST ",
+  "vehCat": "Car",
+  "satdayMin": "510 mins",
+  "satdayRate": "$5.60",
+  "sunPHMin": "510 mins",
+  "sunPHRate": "$5.60",
+  "geometries": [
+   {
+    "coordinates": "27582.895,31962.0601"
+   }
+  ],
+  "startTime": "10.30 PM",
+  "parkCapacity": 268,
+  "endTime": "07.00 AM"
+ },
+ {
+  "weekdayMin": "3 mins",
+  "weekdayRate": "$0.01",
+  "ppCode": "A0007",
+  "parkingSystem": "B",
+  "ppName": "ANGULLIA PARK OFF ST ",
+  "vehCat": "Motorcycle",
+  "satdayMin": "3 mins",
+  "satdayRate": "$0.01",
+  "sunPHMin": "3 mins",
+  "sunPHRate": "$0.01",
+  "geometries": [
+   {
+    "coordinates": "27582.895,31962.0601"
+   }
+  ],
+  "startTime": "07.00 AM",
+  "parkCapacity": 96,
+  "endTime": "10.30 PM"
+ },
+ {
+  "weekdayMin": "3 mins",
+  "weekdayRate": "$0.01",
+  "ppCode": "A0007",
+  "parkingSystem": "B",
+  "ppName": "ANGULLIA PARK OFF ST ",
+  "vehCat": "Motorcycle",
+  "satdayMin": "3 mins",
+  "satdayRate": "$0.01",
+  "sunPHMin": "3 mins",
+  "sunPHRate": "$0.01",
+  "geometries": [
+   {
+    "coordinates": "27582.895,31962.0601"
+   }
+  ],
+  "startTime": "10.30 PM",
+  "parkCapacity": 96,
+  "endTime": "07.00 AM"
+ },
+ {
+  "weekdayMin": "510 mins",
+  "weekdayRate": "$0.65",
+  "ppCode": "A0007",
+  "parkingSystem": "B",
+  "ppName": "ANGULLIA PARK OFF ST ",
+  "vehCat": "Motorcycle",
+  "satdayMin": "510 mins",
+  "satdayRate": "$0.65",
+  "sunPHMin": "510 mins",
+  "sunPHRate": "$0.65",
+  "geometries": [
+   {
+    "coordinates": "27582.895,31962.0601"
+   }
+  ],
+  "startTime": "10.30 PM",
+  "parkCapacity": 96,
+  "endTime": "07.00 AM"
+ },
+ {
+  "ppCode": "A0028",
+  "parkingSystem": "C",
+  "ppName": "ALJUNIED RD (MINOR) ",
+  "vehCat": "Car",
+  "geometries": [
+   {
+    "coordinates": "33156.0403,34185.9516"
+   }
+  ],
+  "startTime": "07.00 AM",
+  "parkCapacity": 19,
+  "endTime": "08.30 AM"
+ },
+ {
+  "weekdayMin": "30 mins",
+  "weekdayRate": "$0.60",
+  "ppCode": "A0028",
+  "parkingSystem": "C",
+  "ppName": "ALJUNIED RD (MINOR) ",
+  "vehCat": "Car",
+  "satdayMin": "30 mins",
+  "satdayRate": "$0.60",
+  "sunPHMin": "0 mins",
+  "sunPHRate": "$0.00",
+  "geometries": [
+   {
+    "coordinates": "33156.0403,34185.9516"
+   }
+  ],
+  "startTime": "08.30 AM",
+  "parkCapacity": 19,
+  "endTime": "05.00 PM"
+ },
+ {
+  "weekdayMin": "0 mins",
+  "weekdayRate": "$0.00",
+  "ppCode": "A0028",
+  "parkingSystem": "C",
+  "ppName": "ALJUNIED RD (MINOR) ",
+  "vehCat": "Car",
+  "satdayMin": "0 mins",
+  "satdayRate": "$0.00",
+  "sunPHMin": "0 mins",
+  "sunPHRate": "$0.00",
+  "geometries": [
+   {
+    "coordinates": "33156.0403,34185.9516"
+   }
+  ],
+  "startTime": "05.00 PM",
+  "parkCapacity": 19,
+  "endTime": "10.00 PM"
+ },
+ {
+  "ppCode": "A0028",
+  "parkingSystem": "C",
+  "ppName": "ALJUNIED RD (MINOR) ",
+  "vehCat": "Car",
+  "geometries": [
+   {
+    "coordinates": "33156.0403,34185.9516"
+   }
+  ],
+  "startTime": "10.00 PM",
+  "parkCapacity": 19,
+  "endTime": "07.00 AM"
+ }
+]

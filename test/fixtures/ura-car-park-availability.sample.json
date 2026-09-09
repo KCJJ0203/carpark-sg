@@ -1,0 +1,62 @@
+[
+ {
+  "lotsAvailable": "95",
+  "carparkNo": "S0049",
+  "lotType": "C",
+  "geometries": [
+   {
+    "coordinates": "30812.1957,33019.1062"
+   }
+  ]
+ },
+ {
+  "lotsAvailable": "11",
+  "carparkNo": "J0122",
+  "lotType": "M",
+  "geometries": [
+   {
+    "coordinates": "32413.8058,42305.5178"
+   }
+  ]
+ },
+ {
+  "lotsAvailable": "1",
+  "carparkNo": "M0040",
+  "lotType": "M",
+  "geometries": [
+   {
+    "coordinates": "29807.0475,31944.2444"
+   }
+  ]
+ },
+ {
+  "lotsAvailable": "7",
+  "carparkNo": "H0015",
+  "lotType": "C",
+  "geometries": [
+   {
+    "coordinates": "30308.9887,32322.7756"
+   }
+  ]
+ },
+ {
+  "lotsAvailable": "9",
+  "carparkNo": "A0046",
+  "lotType": "C",
+  "geometries": [
+   {
+    "coordinates": "33394.2043,32909.1642"
+   }
+  ]
+ },
+ {
+  "lotsAvailable": "0",
+  "carparkNo": "P0113",
+  "lotType": "M",
+  "geometries": [
+   {
+    "coordinates": "23454.3672,28648.1075"
+   }
+  ]
+ }
+]
