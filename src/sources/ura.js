@@ -154,6 +154,15 @@ function toCarpark(rows) {
 
   const name = clean(first.ppName);
   const rates = parseRateTable(cars);
+  // URA prices motorcycles and heavy vehicles too, in the same rows we already
+  // download - 842 motorcycle and 664 heavy-vehicle rows that were being thrown
+  // away. HDB publishes no short-term rate for either on the page this project
+  // transcribes, so those stay unpriced there rather than guessed at.
+  const vehicleRates = { car: rates };
+  for (const [key, cat] of [["motorcycle", "Motorcycle"], ["heavy", "Heavy Vehicle"]]) {
+    const set = rows.filter((r) => r.vehCat === cat);
+    if (set.length) vehicleRates[key] = parseRateTable(set);
+  }
 
   return {
     id: SOURCE + ":" + clean(first.ppCode).toUpperCase(),
@@ -176,6 +185,7 @@ function toCarpark(rows) {
     capacity: Number(first.parkCapacity) || null,
     // What makes this source worth having: its own prices, per carpark.
     rates,
+    vehicleRates,
   };
 }
 

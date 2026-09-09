@@ -83,6 +83,12 @@ function build() {
     // A source that publishes its own prices points at them here. Its absence
     // is what tells the page to use HDB's transcribed schedule instead.
     if (p.rates && p.rates.length) rec.r = rateIndexOf(p.rates);
+    // Motorcycles and heavy vehicles, where the source prices them. Separate
+    // indexes rather than a nested object: they share even more tables between
+    // them than the car ones do, so deduplication is worth more here.
+    const veh = p.vehicleRates || {};
+    if (veh.motorcycle && veh.motorcycle.length) rec.rm = rateIndexOf(veh.motorcycle);
+    if (veh.heavy && veh.heavy.length) rec.rh = rateIndexOf(veh.heavy);
     // How many lots exist. URA publishes it; HDB does not. It is NOT a live
     // count and must never be rendered as one.
     if (p.capacity) rec.k = p.capacity;
@@ -105,7 +111,11 @@ function build() {
     "(" + Object.entries(bySource).map(([k, v]) => k + " " + v).join(", ") + ")");
   console.log("window variants:", table.length, "(instead of", c.length, "copies)");
   console.log("rate tables    :", rateTables.length, "(instead of",
-    c.filter((r) => r.r !== undefined).length, "copies)");
+    c.filter((r) => r.r !== undefined).length + c.filter((r) => r.rm !== undefined).length +
+    c.filter((r) => r.rh !== undefined).length, "copies)");
+  console.log("  priced        : car", c.filter((r) => r.r !== undefined).length,
+    "| motorcycle", c.filter((r) => r.rm !== undefined).length,
+    "| heavy", c.filter((r) => r.rh !== undefined).length);
   console.log("size           :", Math.round(before / 1024) + "KB ->", Math.round(after / 1024) + "KB",
     "(" + Math.round((1 - after / before) * 100) + "% smaller)");
 }

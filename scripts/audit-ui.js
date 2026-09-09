@@ -389,6 +389,65 @@ async function auditChrome(browser, errors) {
   }
 }
 
+// URA prices motorcycles and lorries; HDB's transcribed schedule is cars only.
+// Quoting a car rate for a motorcycle would be wrong in the direction that
+// costs money, so the app has to say it does not know.
+async function auditVehicles(browser, errors) {
+  console.log("\n== motorcycles and lorries ==");
+  const { ctx, page } = await open(browser, 1600, 1000, errors);
+
+  const chips = await page.$$eval("#vehChips .chip", (b) => b.map((x) => x.textContent.trim()));
+  check("you can say what you are parking", chips.length === 3, JSON.stringify(chips));
+  check("car is the default",
+    await page.$eval("#vehChips [data-veh='car']", (b) => b.getAttribute("aria-pressed") === "true"));
+
+  // Aliwal St is a URA street with a published motorcycle rate: $0.01 per 3 min
+  // from 08.30 to 22.00, free either side. Two hours from 9am is $0.40.
+  const priced = await page.evaluate(() => {
+    const c = state.carparks.find((x) => x.i === "ura:A0004");
+    state.vehicle = "motorcycle";
+    const bike = feeForCarpark(c, new Date("2026-08-19T09:00:00+08:00"), 120);
+    state.vehicle = "car";
+    const car = feeForCarpark(c, new Date("2026-08-19T09:00:00+08:00"), 120);
+    return { bike: bike.total, bikeWhy: bike.unavailable, car: car.total, has: c.rm !== undefined };
+  });
+  check("URA motorcycle rates are carried through to the page", priced.has);
+  check("a motorcycle is priced at the motorcycle rate", priced.bike === 0.4,
+    "bike $" + priced.bike + " vs car $" + priced.car);
+  check("and it is not simply the car price", priced.bike !== priced.car);
+
+  // HDB publishes no short-term motorcycle rate on the page this project reads.
+  const hdb = await page.evaluate(() => {
+    const c = state.carparks.find((x) => x.i.startsWith("hdb:") && x.r === undefined);
+    state.vehicle = "motorcycle";
+    const f = feeForCarpark(c, new Date("2026-08-19T09:00:00+08:00"), 120);
+    state.vehicle = "car";
+    return { total: f.total, why: f.unavailable, id: c.i };
+  });
+  check("an HDB carpark is NOT quoted a car rate for a motorcycle",
+    hdb.total === null && hdb.why === "vehicle-not-priced", hdb.id + " -> " + hdb.why);
+
+  // And it has to say so in words, not just show a blank.
+  await page.click("#vehChips [data-veh='motorcycle']");
+  await page.waitForTimeout(600);
+  await page.evaluate(() => goTo(1.3343, 103.8563, 16));   // Toa Payoh, all HDB
+  await page.waitForTimeout(900);
+  const said = await page.evaluate(() => ({
+    prices: [...document.querySelectorAll(".row[data-id] .price")].map((e) => e.textContent),
+  }));
+  check("the list says why rather than showing nothing",
+    said.prices.length > 0 && said.prices.every((t) => /motorcycle rate/i.test(t)),
+    JSON.stringify(said.prices.slice(0, 2)));
+
+  await page.click(".row[data-id]");
+  await page.waitForTimeout(500);
+  const detail = await page.evaluate(() => document.querySelector(".fee-box").textContent);
+  check("the carpark panel explains the gap",
+    /motor cars only|signboard/i.test(detail), detail.replace(/\s+/g, " ").slice(0, 110));
+
+  await ctx.close();
+}
+
 // The app's whole reason to exist: not "which carpark", but "what hour".
 async function auditWhenPanel(browser, errors) {
   console.log("\n== when to go (the front page) ==");
@@ -748,6 +807,7 @@ async function auditTablet(browser, errors) {
   try {
     await auditDesktop(browser, errors);
     await auditChrome(browser, errors);
+    await auditVehicles(browser, errors);
     await auditWhenPanel(browser, errors);
     await auditPriceChart(browser, errors);
     await auditPhone(browser, errors);

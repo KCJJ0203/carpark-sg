@@ -194,6 +194,13 @@ list, because the list is rewritten every time the map settles, which is precise
 looking for the message. And "find me" now uses the same centring as search, so on a phone you are
 placed above the sheet rather than behind it.
 
+**Three vehicles, and silence where the source is silent.** URA publishes motorcycle and
+heavy-vehicle rates in the same rows the app already downloads — 842 and 664 of them, previously
+thrown away. They are priced now: a motorcycle on Aliwal St is $0.01 per 3 minutes, so two hours is
+40 cents rather than the car's $2.40. HDB's schedule covers motor cars only, so an HDB carpark
+answers "no motorcycle rate here" and says why. Shipping all three tables cost 12KB, because 657
+carparks share 46 distinct tables between them.
+
 **Free is not the same as unknown.** Hours a carpark cannot be priced for are drawn hatched, never
 as zero, and never counted as the cheapest. This is the same rule as everywhere else in the project,
 in the one place where breaking it would look most convincing.
@@ -291,8 +298,9 @@ of day the app can never learn anything about. See [docs/COLLECTION.md](docs/COL
   those hours. See the note above.
 - Distances are straight-line, not walking routes.
 - Availability is whatever the operator reports, and it can lag reality.
-- Fees cover **motor cars**. Motorcycles, heavy vehicles and the loading bays with their own
-  pricing are not quoted rather than quoted approximately.
+- **Motorcycles and lorries are priced only where URA prices them** — 214 and 162 carparks. HDB
+  publishes a schedule for motor cars, so anything else at an HDB carpark says "no motorcycle rate
+  here" rather than quoting the car price, which would be wrong in the direction that costs money.
 - Season parking is not priced. 111 carparks offer nothing else, and the app says "season parking
   only" instead of inventing an hourly rate for them.
 - Whether a public holiday counts as a "weekend" for the 12 peak-hour carparks is not stated on
