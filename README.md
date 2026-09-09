@@ -172,6 +172,15 @@ day if you have picked a future date — and the hours behind you are drawn fain
 A run of cheap hours is phrased the way a person would say it, "after 5.00pm", rather than as a list
 of eight times.
 
+**A control that fails silently is worse than one that is missing.** The browser shows its location
+prompt only the first time; once the answer is remembered it never asks again, so a blocked site
+makes "find me" look like a dead button. The app checks the permission first and says exactly that,
+with the fix — padlock, set Location to Allow, reload — and tells the difference between blocked,
+refused, timed out and simply unavailable. Messages live in their own element rather than in the
+list, because the list is rewritten every time the map settles, which is precisely when someone is
+looking for the message. And "find me" now uses the same centring as search, so on a phone you are
+placed above the sheet rather than behind it.
+
 **Free is not the same as unknown.** Hours a carpark cannot be priced for are drawn hatched, never
 as zero, and never counted as the cheapest. This is the same rule as everywhere else in the project,
 in the one place where breaking it would look most convincing.

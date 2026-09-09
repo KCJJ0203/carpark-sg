@@ -246,6 +246,29 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
   }
   #locate { top: 10px; }
   #layoutBtn { top: 58px; }
+  /* Finding you can take several seconds, and a button that only greys out
+     looks like a button that did nothing. */
+  #locate[aria-busy="true"] { animation: pulse 1.1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .45; } }
+
+  /* ---- notices ------------------------------------------------------- */
+  /* Above everything the list draws, because render() rewrites the list on
+     every map move - an error written into the list disappears the moment the
+     map settles, which is exactly when the user is looking for it. */
+  #notice {
+    display: flex; align-items: flex-start; gap: 10px; margin: 10px 0 0;
+    border: 1px solid var(--line); border-left: 3px solid var(--muted);
+    border-radius: 10px; padding: 10px 11px; font-size: 13px; color: var(--ink);
+  }
+  #notice.bad { border-left-color: var(--bad); }
+  #notice.busy { border-left-color: var(--ok); }
+  #notice p { margin: 0; flex: 1 1 auto; }
+  #notice b { display: block; font-weight: 600; margin-bottom: 2px; }
+  #notice small { color: var(--muted); font-size: 12px; }
+  #notice button {
+    flex: 0 0 auto; border: none; background: none; color: var(--muted);
+    font-size: 17px; line-height: 1; padding: 0 2px; cursor: pointer;
+  }
 
   /* ---- search suggestions ------------------------------------------- */
   .qwrap { position: relative; flex: 1; min-width: 0; }
@@ -309,7 +332,11 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
      drawer. On a wide screen the map should be the page and the list should
      sit next to it, which is also what makes dragging unnecessary there. */
   @media (min-width: 980px) {
-    #app { flex-direction: row; }
+    #app { flex-direction: row; --rail: clamp(340px, 26vw, 440px); }
+    /* Straddling the rail's edge, so it reads as "collapse this panel" rather
+       than as another map control. */
+    #layoutBtn { top: 12px; right: auto; left: calc(var(--rail) - 17px); border-radius: 8px; }
+    #app[data-rail="off"] #layoutBtn { left: 10px; }
     #app[data-layout] #map {
       position: relative; inset: auto; flex: 1 1 auto; height: 100%; min-width: 0;
     }
@@ -318,7 +345,7 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
       /* Width on its own, NOT inside the flex shorthand: `flex: 0 0 clamp(...)`
          fails to parse, and the rail then silently falls back to sharing the
          window - which measured 795px of a 1024px screen. */
-      flex: 0 0 auto; width: clamp(340px, 26vw, 440px);
+      flex: 0 0 auto; width: var(--rail);
       border-radius: 0; border-right: 1px solid var(--line);
       box-shadow: 2px 0 14px var(--scrim);
     }
@@ -406,6 +433,7 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
       </div>
     </div>
     <div id="sheetBody">
+      <div id="notice" hidden role="status" aria-live="polite"></div>
       <!-- Answered before the list, because it is the question the list cannot
            answer: not "which carpark", but "what hour". -->
       <div id="when"></div>
@@ -1457,7 +1485,33 @@ function initControls() {
 
   $("#locate").addEventListener("click", async () => {
     const btn = $("#locate");
+
+    // The browser only shows its permission prompt the FIRST time, and never
+    // again once the answer is remembered. So a click that appears to do
+    // nothing usually means the answer is already "block" - and saying that is
+    // far more use than a generic "could not get your location".
+    if (!navigator.geolocation) {
+      return notice("This browser cannot share your location.",
+        "Search for a place, road or postcode instead.", "bad");
+    }
+    if (!window.isSecureContext) {
+      return notice("Location needs a secure connection.",
+        "Open the site over https and try again.", "bad");
+    }
+    if (navigator.permissions && navigator.permissions.query) {
+      try {
+        const st = await navigator.permissions.query({ name: "geolocation" });
+        if (st.state === "denied") {
+          return notice("Location is blocked for this site.",
+            "Your browser will not ask again until you allow it: click the padlock or the " +
+            "location icon in the address bar, set Location to Allow, then reload.", "bad");
+        }
+      } catch (e) { /* not supported here; fall through and just ask */ }
+    }
+
     btn.disabled = true;
+    btn.setAttribute("aria-busy", "true");
+    notice("Finding you\u2026", "Your browser may ask for permission.", "busy");
     try {
       const pos = await new Promise((res, rej) =>
         navigator.geolocation.getCurrentPosition(
@@ -1469,19 +1523,52 @@ function initControls() {
         icon: L.divIcon({ className: "pin-icon", html: '<div class="me-dot"></div>', iconSize: [0, 0] }),
         keyboard: false, zIndexOffset: -1000,
       }).addTo(state.map);
-      state.selected = null;
-      state.map.setView([pos.lat, pos.lng], 17);
+      clearNotice();
+      // goTo, not setView: on a phone the sheet covers the bottom of the map,
+      // and centring on it puts you behind the list.
+      goTo(pos.lat, pos.lng, 17);
     } catch (e) {
-      fail("Could not get your location. Check location permission, or search for a place instead.");
+      const code = e && e.code;
+      if (code === 1) {
+        notice("You turned down the location request.",
+          "Allow it from the address bar if you change your mind, or search for a place.", "bad");
+      } else if (code === 3) {
+        notice("Your location took too long to arrive.",
+          "This is common indoors. Try again, or search for a place.", "bad");
+      } else {
+        notice("Your device could not work out where it is.",
+          "Try again in a moment, or search for a place, road or postcode.", "bad");
+      }
     } finally {
       btn.disabled = false;
+      btn.removeAttribute("aria-busy");
     }
   });
 }
 
+// Messages live in their own element, not in the list. render() rewrites the
+// list on every map move, so an error written there vanishes the moment the map
+// settles - which is the moment the reader goes looking for it.
+function notice(title, detail, kind) {
+  const box = $("#notice");
+  box.className = kind || "";
+  box.innerHTML = "<p><b>" + title + "</b>" + (detail ? "<small>" + detail + "</small>" : "") + "</p>" +
+    (kind === "busy" ? "" : '<button type="button" aria-label="Dismiss">\u00d7</button>');
+  box.hidden = false;
+  const x = box.querySelector("button");
+  if (x) x.addEventListener("click", clearNotice);
+}
+
+function clearNotice() {
+  const box = $("#notice");
+  box.hidden = true;
+  box.innerHTML = "";
+  box.className = "";
+}
+
 function fail(message) {
   $("#where").innerHTML = "";
-  $("#list").innerHTML = '<div class="note err">' + message + "</div>";
+  notice(message, "", "bad");
 }
 
 // Centre the map on a place. In layout A the sheet covers the bottom of the
@@ -1490,6 +1577,7 @@ function fail(message) {
 function goTo(lat, lng, zoom) {
   state.selected = null;
   closeSuggestions();
+  if (!$("#notice").classList.contains("busy")) clearNotice();
   state.map.setView([lat, lng], zoom || 17, { animate: false });
   const hidden = hiddenMapPixels();
   if (hidden > 0) state.map.panBy([0, hidden / 2], { animate: false });

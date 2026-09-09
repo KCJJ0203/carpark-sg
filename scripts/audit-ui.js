@@ -41,11 +41,11 @@ const ready = (page) => page.waitForFunction(
   () => typeof state !== "undefined" && state.carparks && document.querySelectorAll(".row[data-id]").length,
   null, { timeout: 30000 });
 
-async function open(browser, width, height, errors) {
+async function open(browser, width, height, errors, opts) {
   const ctx = await browser.newContext({
     viewport: { width, height },
-    geolocation: { latitude: 1.3521, longitude: 103.8198 },
-    permissions: [],
+    geolocation: (opts && opts.geolocation) || { latitude: 1.3521, longitude: 103.8198 },
+    permissions: (opts && opts.permissions) || [],
     locale: "en-SG",
     timezoneId: "Asia/Singapore",
   });
@@ -280,6 +280,113 @@ async function auditDesktop(browser, errors) {
   check("the type filters are a separate group", groups.typeCount === 6, String(groups.typeCount));
 
   await ctx.close();
+}
+
+// Two controls that have to behave, because when they misbehave they do it
+// silently: a button that hides a panel it is nowhere near, and a button whose
+// browser prompt only ever appears once.
+async function auditChrome(browser, errors) {
+  console.log("\n== find me, and the hide-list button ==");
+
+  // 1. The hide-list button should sit beside the list, not in the far corner
+  //    of the map.
+  {
+    const { ctx, page } = await open(browser, 1600, 900, errors);
+    const geo = await page.evaluate(() => {
+      const b = document.querySelector("#layoutBtn").getBoundingClientRect();
+      const rail = document.querySelector("#sheet").getBoundingClientRect();
+      const locate = document.querySelector("#locate").getBoundingClientRect();
+      return { btnLeft: b.left, btnRight: b.right, railRight: rail.right,
+               winW: innerWidth, locateRight: locate.right, overlap: b.top < rail.bottom };
+    });
+    check("the hide-list button sits at the edge of the list it hides",
+      Math.abs(geo.btnLeft - geo.railRight) < 40,
+      "button at " + Math.round(geo.btnLeft) + ", rail edge at " + Math.round(geo.railRight));
+    check("it is no longer in the far corner of the map",
+      geo.btnRight < geo.winW - 200, Math.round(geo.winW - geo.btnRight) + "px from the right edge");
+    check("find-me stays in the map corner where it belongs",
+      geo.locateRight > geo.winW - 60);
+
+    // Hiding the rail must not strand the button off-screen.
+    await page.click("#layoutBtn");
+    await page.waitForTimeout(300);
+    const hidden = await page.evaluate(() => {
+      const b = document.querySelector("#layoutBtn").getBoundingClientRect();
+      return { left: b.left, visible: b.left >= 0 && b.right <= innerWidth };
+    });
+    check("with the list hidden the button is still reachable", hidden.visible,
+      "left " + Math.round(hidden.left));
+    await ctx.close();
+  }
+
+  // 2. Find me, with permission refused. The browser shows its prompt only the
+  //    first time; after that a click looks like it does nothing at all, which
+  //    is the one case a generic error message cannot help with.
+  {
+    const { ctx, page } = await open(browser, 1600, 900, errors, { permissions: [] });
+    await page.click("#locate");
+    await page.waitForTimeout(2500);
+    const msg = await page.evaluate(() => {
+      const el = document.querySelector("#notice");
+      return { shown: !el.hidden, bad: el.className.indexOf("bad") !== -1, text: el.textContent };
+    });
+    check("refusing location says so instead of failing quietly", msg.shown && msg.bad,
+      msg.text.slice(0, 80));
+    check("and it says what to do about it",
+      /address bar|allow|search for a place/i.test(msg.text), msg.text.slice(0, 110));
+
+    // The original bug: the message was written into the list, and the next map
+    // move rewrote the list and wiped it.
+    await page.evaluate(() => state.map.panBy([120, 90]));
+    await page.waitForTimeout(900);
+    check("the message survives the map moving",
+      await page.evaluate(() => !document.querySelector("#notice").hidden));
+
+    await page.click("#notice button");
+    await page.waitForTimeout(200);
+    check("the message can be dismissed",
+      await page.evaluate(() => document.querySelector("#notice").hidden));
+    await ctx.close();
+  }
+
+  // 3. Find me, allowed.
+  {
+    const { ctx, page } = await open(browser, 1600, 900, errors,
+      { permissions: ["geolocation"], geolocation: { latitude: 1.3006, longitude: 103.8388 } });
+    await page.click("#locate");
+    await page.waitForFunction(() => state.me, null, { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(900);
+    const found = await page.evaluate(() => ({
+      me: state.me,
+      dot: !!document.querySelector(".me-dot"),
+      noticeGone: document.querySelector("#notice").hidden,
+      centre: state.centre,
+      where: document.querySelector("#where").textContent,
+    }));
+    check("allowing location finds you", !!found.me &&
+      Math.abs(found.me.lat - 1.3006) < 0.01, JSON.stringify(found.me));
+    check("your position is drawn on the map", found.dot);
+    check("the list re-anchors to you", /\byou\b/.test(found.where), found.where.slice(0, 60));
+    check("the busy message clears once you are found", found.noticeGone);
+    await ctx.close();
+  }
+
+  // 4. On a phone, "you" must not land behind the sheet.
+  {
+    const { ctx, page } = await open(browser, 390, 844, errors,
+      { permissions: ["geolocation"], geolocation: { latitude: 1.3006, longitude: 103.8388 } });
+    await page.click("#locate");
+    await page.waitForFunction(() => state.me, null, { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(900);
+    const onScreen = await page.evaluate(() => {
+      const pt = state.map.latLngToContainerPoint([state.me.lat, state.me.lng]);
+      const sheetTop = document.querySelector("#sheet").getBoundingClientRect().top;
+      return { y: pt.y, sheetTop: sheetTop, visible: pt.y > 0 && pt.y < sheetTop };
+    });
+    check("on a phone you are placed above the sheet, not behind it", onScreen.visible,
+      "y=" + Math.round(onScreen.y) + " sheet starts at " + Math.round(onScreen.sheetTop));
+    await ctx.close();
+  }
 }
 
 // The app's whole reason to exist: not "which carpark", but "what hour".
@@ -599,6 +706,7 @@ async function auditTablet(browser, errors) {
   const errors = [];
   try {
     await auditDesktop(browser, errors);
+    await auditChrome(browser, errors);
     await auditWhenPanel(browser, errors);
     await auditPriceChart(browser, errors);
     await auditPhone(browser, errors);
