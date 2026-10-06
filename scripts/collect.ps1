@@ -1,6 +1,8 @@
 ﻿# Runs one carpark availability collection, then publishes it.
 #
-# Launched hidden by hidden-run.vbs from Task Scheduler every 30 minutes.
+# Launched every 30 minutes: on the always-on Jarvis server by the systemd
+# timer jarvis-carpark-collect.timer, and on the laptop (until that task is
+# disabled) hidden by hidden-run.vbs from Task Scheduler.
 #
 # WHY THIS PUSHES NOW: GitHub's scheduler stopped dispatching the Actions
 # collector reliably. It fell to 3 snapshots a day while every run it did make
@@ -17,9 +19,12 @@
 # Paths are ABSOLUTE and the location is set explicitly: launched via wscript
 # there is no useful working directory, and "node scripts\collect.js" fails with
 # a module-not-found that only shows up once it is running under the scheduler.
+# The root comes from this script's own location and paths use forward slashes,
+# so the same file runs under pwsh on Windows and on Linux.
 $ErrorActionPreference = "Stop"
-$root = "D:\Projects\carpark-sg"
-$log  = Join-Path $root "data\collect.log"
+$root = Split-Path -Parent $PSScriptRoot
+$log  = Join-Path $root "data/collect.log"
+$machine = if ($IsLinux) { "server" } else { "laptop" }
 
 function Write-Log($message) {
     $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -52,8 +57,8 @@ function Invoke-Git {
 
 try {
     Set-Location $root
-    $cp = Join-Path $root "data\carparks.json"
-    $jsArgs = @((Join-Path $root "scripts\collect.js"))
+    $cp = Join-Path $root "data/carparks.json"
+    $jsArgs = @((Join-Path $root "scripts/collect.js"))
     # Rebuild the static carpark list if it is more than a week old.
     if (-not (Test-Path $cp) -or (Get-Item $cp).LastWriteTime -lt (Get-Date).AddDays(-7)) {
         $jsArgs += "--carparks"
@@ -96,7 +101,7 @@ try {
     }
 
     $stamp = Get-Date -Format "yyyy-MM-ddTHH:mmzzz"
-    $commit = Invoke-Git @("commit", "-q", "-m", "data: snapshot $stamp (laptop)")
+    $commit = Invoke-Git @("commit", "-q", "-m", "data: snapshot $stamp ($machine)")
     if ($commit.Code -ne 0) { throw "git commit failed: $($commit.Output)" }
 
     $pull = Invoke-Git @("pull", "--rebase")
