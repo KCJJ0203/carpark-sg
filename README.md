@@ -6,8 +6,8 @@ staying, and the first thing the app tells you is the hour to arrive:
 > **Arrive after 5.00pm and pay free.**
 > It is $2.40 arriving 1.00pm, so you save $2.40 by waiting.
 
-Then the map, the list and every price on it move with whatever hour you pick. Covers **2,929
-carparks** — every HDB carpark and every URA carpark and on-street bay.
+Then the map, the list and every price on it move with whatever hour you pick. Covers **2,970
+carparks**: every HDB carpark, every URA carpark and on-street bay, and 40 malls with live lots from LTA.
 
 **→ [kcjj0203.github.io/carpark-sg](https://kcjj0203.github.io/carpark-sg/)**
 
