@@ -680,6 +680,10 @@ async function loadStatic() {
 // so no server of our own sits in the middle.
 async function loadLive() {
   const r = await fetch("https://api.data.gov.sg/v1/transport/carpark-availability");
+  // A rate-limit or error page can still be JSON. Without this check it would
+  // parse to nothing and the page would still say "live as of" a time when no
+  // live number was actually read.
+  if (!r.ok) throw new Error("availability answered " + r.status);
   const j = await r.json();
   const map = new Map();
   for (const c of (j.items?.[0]?.carpark_data) || []) {
@@ -694,6 +698,7 @@ async function loadLive() {
       at: c.update_datetime ? new Date(c.update_datetime + "+08:00") : null,
     });
   }
+  if (!map.size) throw new Error("availability carried no carparks");
   state.live = map;
   state.fetchedAt = new Date();
 }

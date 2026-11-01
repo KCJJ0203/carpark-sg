@@ -20,7 +20,9 @@
 // v9: motorcycles and lorries are priced where URA prices them, so the payload
 // carries three rate tables per carpark instead of one.
 // v10: rows carry an estimated walking time beside the distance.
-const VERSION = "v11";
+// v12: error responses are no longer cached, and "live as of" only shows when
+// a live reading actually arrived.
+const VERSION = "v12";
 const TILES = "tiles-v1";
 const SHELL = [
   "./", "./index.html", "./carparks.min.json", "./holidays.json", "./patterns.json",
@@ -85,8 +87,12 @@ self.addEventListener("fetch", (e) => {
   e.respondWith(
     fetch(e.request)
       .then((res) => {
-        const copy = res.clone();
-        caches.open(VERSION).then((c) => c.put(e.request, copy)).catch(() => {});
+        // Only a good answer replaces the cached copy. Caching a 404 or a 5xx
+        // from a bad deploy would make the offline fallback serve the error.
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(VERSION).then((c) => c.put(e.request, copy)).catch(() => {});
+        }
         return res;
       })
       .catch(() => caches.match(e.request).then((hit) => hit || caches.match("./index.html")))
