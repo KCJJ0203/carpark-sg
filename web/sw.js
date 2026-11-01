@@ -27,7 +27,8 @@
 // (rates.js grew a third engine), and Keppel Bay Tower joined the map.
 // v15: "park free" - a Free view, free-till / free-from tags, Sunday and
 // public-holiday chips.
-const VERSION = "v15";
+// v16: EV chargers (tags, an EV filter, a charger box in the panel).
+const VERSION = "v16";
 const TILES = "tiles-v1";
 const SHELL = [
   "./", "./index.html", "./carparks.min.json", "./holidays.json", "./patterns.json",

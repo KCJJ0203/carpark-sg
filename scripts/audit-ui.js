@@ -59,7 +59,14 @@ async function open(browser, width, height, errors, opts) {
   // fresh), so both "shown" and "too old to show" can be tested.
   if (!LIVE) {
     const base = CLOCK ? new Date(CLOCK).getTime() : Date.now();
-    await ctx.route("https://raw.githubusercontent.com/**", (route) => route.fulfill({
+    // The chargers are the real file from data/, re-dated the same way.
+    await ctx.route("https://raw.githubusercontent.com/**/live-ev.json", (route) => {
+      const j = JSON.parse(require("fs").readFileSync(
+        require("path").join(__dirname, "..", "data", "live-ev.json"), "utf8"));
+      j.at = new Date(base - ((opts && opts.evAgeMin) || 3) * 60000).toISOString();
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(j) });
+    });
+    await ctx.route("https://raw.githubusercontent.com/**/live-lta.json", (route) => route.fulfill({
       status: 200, contentType: "application/json",
       body: JSON.stringify({
         at: new Date(base - ((opts && opts.mallAgeMin) || 3) * 60000).toISOString(),
@@ -301,7 +308,7 @@ async function auditDesktop(browser, errors) {
   check("the three orders sit on one row as a segmented control",
     groups.sortOnOneRow && groups.segLooksJoined, groups.sortCount + " buttons");
   check("exactly one order is chosen at a time", groups.pressedSorts === 1, String(groups.pressedSorts));
-  check("each control row is labelled", groups.labels.length === 2, JSON.stringify(groups.labels));
+  check("each control row is labelled", groups.labels.length === 3, JSON.stringify(groups.labels));
   check("the type filters are a separate group", groups.typeCount === 6, String(groups.typeCount));
 
   await ctx.close();
@@ -829,6 +836,74 @@ async function auditFree(browser, errors) {
   await ctx.close();
 }
 
+// EV chargers: the tag on a carpark card, the EV filter (which also brings in
+// charger sites that are not carparks), the charger box in the panel, and an
+// old charger file showing chargers but never claiming any are free.
+async function auditEv(browser, errors) {
+  console.log("\n== ev chargers ==");
+  let { ctx, page } = await open(browser, 1600, 1000, errors);
+  await page.evaluate(() => goTo(1.29031, 103.84673, 17));   // Clarke Quay
+  await page.waitForFunction(() => state.ev, null, { timeout: 15000 });
+  await page.waitForTimeout(700);
+  const cq = await page.evaluate(() => {
+    const row = document.querySelector('.row[data-id="lta:59"]');
+    const t = row && row.querySelector(".tag.ev, .tag.ev.idle");
+    return t ? t.textContent : null;
+  });
+  check("a carpark with chargers says how many are free", /\d+ of \d+ chargers free|chargers in use|in use/.test(cq || ""), cq);
+  check("and how fast the fastest one is", /kW/.test(cq || ""), cq);
+
+  await page.click("#evChip");
+  await page.waitForTimeout(700);
+  const on = await page.evaluate(() => ({
+    rows: state.lastRows.length,
+    allEv: state.lastRows.every((r) => evSummary(r.c)),
+    pins: state.markers.size,
+    lead: document.querySelector("#where").textContent,
+  }));
+  check("the EV filter lists only places with chargers", on.rows > 0 && on.allEv, JSON.stringify(on));
+  check("and the map shows only those", on.pins === on.rows, on.pins + " pins, " + on.rows + " rows");
+  check("and the heading says so", /With EV chargers/.test(on.lead), on.lead);
+
+  await page.evaluate(() => openDetail("lta:59"));
+  await page.waitForTimeout(300);
+  const panel = await page.evaluate(() => {
+    const b = document.querySelector(".ev-box");
+    return b ? b.textContent : "";
+  });
+  check("the panel lists the chargers with plug, power and price", /Combo 2/.test(panel) && /kW/.test(panel) && /\$\d\.\d\d\/kWh/.test(panel), panel.slice(0, 160));
+  check("and says where the data is from", /LTA DataMall/.test(panel) && /GST/.test(panel));
+  await page.evaluate(() => closeDetail());
+
+  // A Shell station: a charger site that is in no carpark feed.
+  await page.evaluate(() => goTo(1.31131, 103.84318, 17));
+  await page.waitForTimeout(700);
+  const site = await page.evaluate(() => {
+    const r = state.lastRows.find((x) => x.c.o === "e");
+    if (!r) return null;
+    openDetail(r.c.i);
+    return { id: r.c.i, text: document.querySelector("#list").textContent };
+  });
+  check("charger sites that are not carparks appear with EV on", !!site, site && site.id);
+  check("and quote no parking price", site && /Parking price not listed/.test(site.text) && !/\$\d+\.\d\d(?!\/)/.test(
+    site.text.replace(/\$\d\.\d\d\/(kWh|h)/g, "")), site && site.text.slice(0, 200));
+  await page.evaluate(() => closeDetail());
+  await page.click("#evChip");
+  await page.waitForTimeout(500);
+  const off = await page.evaluate(() => state.lastRows.some((r) => r.c.o === "e"));
+  check("and are gone again with EV off", !off);
+  await ctx.close();
+
+  ({ ctx, page } = await open(browser, 1600, 1000, errors, { evAgeMin: 180 }));
+  await page.evaluate(() => goTo(1.29031, 103.84673, 17));
+  await page.waitForFunction(() => state.ev, null, { timeout: 15000 });
+  await page.waitForTimeout(700);
+  const stale = await page.evaluate(() => [...document.querySelectorAll(".tag.ev, .tag.idle")].map((t) => t.textContent));
+  check("an old charger file still shows the chargers", stale.length > 0, JSON.stringify(stale.slice(0, 3)));
+  check("but never says any are free", stale.every((t) => !/free|in use/.test(t)), JSON.stringify(stale.slice(0, 3)));
+  await ctx.close();
+}
+
 async function auditPhone(browser, errors) {
   console.log("\n== phone 390x844 ==");
   const { ctx, page } = await open(browser, 390, 844, errors);
@@ -1114,6 +1189,7 @@ async function auditMalls(browser, errors) {
     await auditWhenPanel(browser, errors);
     await auditPriceChart(browser, errors);
     await auditFree(browser, errors);
+    await auditEv(browser, errors);
     await auditPhone(browser, errors);
     await auditTablet(browser, errors);
   } finally {

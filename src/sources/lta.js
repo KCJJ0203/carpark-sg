@@ -223,4 +223,6 @@ async function fetchAvailability() {
 
 module.exports = {
   SOURCE, toCarpark, toAvailability, fetchCarparks, fetchAvailability, toPoint, isLta,
+  // For src/sources/ev.js, which uses the same key for the charger feed.
+  accountKey,
 };

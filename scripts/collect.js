@@ -14,6 +14,7 @@ const hdb = require("../src/sources/hdb");
 const ura = require("../src/sources/ura");
 const lta = require("../src/sources/lta");
 const manual = require("../src/sources/manual");
+const ev = require("../src/sources/ev");
 const { encodeSnapshot } = require("../src/history");
 
 const DATA = path.join(__dirname, "..", "data");
@@ -53,6 +54,24 @@ function writeMallLive(now, records) {
   if (!Object.keys(lots).length) return;
   fs.mkdirSync(DATA, { recursive: true });
   fs.writeFileSync(MALL_LIVE, JSON.stringify({ at: now.toISOString(), lots }) + "\n");
+}
+
+// EV chargers, for the page, the same way and for the same reason as the mall
+// counts above: the feed needs the LTA key. Best effort and separate from the
+// snapshot - a charger feed having a bad day must never cost a tick of lot
+// history - and a run that returns implausibly few sites keeps the last file.
+const EV_LIVE = path.join(DATA, "live-ev.json");
+
+async function writeEvLive(now) {
+  const carparksFile = path.join(DATA, "carparks.json");
+  const carparks = fs.existsSync(carparksFile)
+    ? JSON.parse(fs.readFileSync(carparksFile, "utf8")).carparks || [] : [];
+  const data = ev.compact(await ev.fetchBatch(), carparks);
+  if (data.sites.length < ev.MIN_SITES) {
+    throw new Error("only " + data.sites.length + " charger sites; keeping the last file");
+  }
+  fs.writeFileSync(EV_LIVE, ev.serialise(now, data));
+  return data.sites.length;
 }
 
 async function collectAvailability(now) {
@@ -143,4 +162,9 @@ async function rebuildCarparks() {
   }
   const a = await collectAvailability(now);
   console.log("availability rows:", a.written, "->", path.basename(a.file), a.stale ? "(" + a.stale + " stale >15min)" : "");
+  try {
+    console.log("ev charger sites:", await writeEvLive(now));
+  } catch (e) {
+    console.error("ev chargers failed:", e.message);
+  }
 })();
