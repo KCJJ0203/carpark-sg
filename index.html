@@ -94,7 +94,9 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
     border: 1px solid var(--line); border-radius: 10px; padding: 2px; gap: 2px;
   }
   .seg button {
-    flex: 1 1 0; min-width: 0; font-size: 13px; font-weight: 600; padding: 6px 4px;
+    /* Sized to the label, not split equally: with four options "Free" needs a
+       quarter of the width and "Most lots" more, and equal shares cut it off. */
+    flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: 600; padding: 6px 4px;
     border: none; border-radius: 8px; background: none; color: var(--muted);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
@@ -105,7 +107,22 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
      below is more specific and turns wrapping back on. */
   #typeChips { flex: 1 1 auto; min-width: 0; }
 
-  /* ---- when to go ---------------------------------------------------- */
+  function freeMissHtml() {
+  const h = state.freeHint;
+  const sunday = sgParts(stayStart()).date === nextSunday() ? "" :
+    ' <button type="button" class="chip" id="freeSun">Try Sunday</button>';
+  if (!h) {
+    return '<div class="note">Nothing within about a kilometre is free for this stay, or later that day.' +
+      sunday + "</div>";
+  }
+  const at = clockAt(sgDateAt(sgParts(stayStart()).date, h.from));
+  return '<div class="note">Nothing near here is free for this stay. Soonest: <b>' + tidy(h.c.a) +
+    "</b>, " + fmtDist(h.d) + " away, free from <b>" + at + "</b>. " +
+    '<button type="button" class="chip" id="freeGo" data-at="' + h.from + '">Arrive ' + at + "</button>" +
+    sunday + "</div>";
+}
+
+/* ---- when to go ---------------------------------------------------- */
   /* The front page of this app is a question about TIME, not a list of
      carparks: parking near here is free after 5pm, and no amount of sorting a
      list by distance will tell you that. */
@@ -187,6 +204,8 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
   .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 9px; }
   .tag { font-size: 12px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
   .tag.free { color: var(--ok); border-color: currentColor; font-weight: 600; }
+  /* Free LATER that day: the same colour, but dashed, because it is not free yet. */
+  .tag.soon { color: var(--ok); border: 1px dashed currentColor; }
   .tag.stale { color: var(--warn); border-color: currentColor; }
   .tag.dear { color: var(--bad); border-color: currentColor; }
   .star {
@@ -255,7 +274,9 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
   /* Above everything the list draws, because render() rewrites the list on
      every map move - an error written into the list disappears the moment the
      map settles, which is exactly when the user is looking for it. */
-  #notice {
+  /* :not([hidden]) because a bare display: flex beats the hidden attribute,
+     which drew the empty box as a stray "(" above the list. */
+  #notice:not([hidden]) {
     display: flex; align-items: flex-start; gap: 10px; margin: 10px 0 0;
     border: 1px solid var(--line); border-left: 3px solid var(--muted);
     border-radius: 10px; padding: 10px 11px; font-size: 13px; color: var(--ink);
@@ -407,6 +428,9 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
             <span class="chips" role="group" aria-label="Which day">
               <button type="button" class="chip" data-day="0" aria-pressed="true">Today</button>
               <button type="button" class="chip" data-day="1" aria-pressed="false">Tomorrow</button>
+              <!-- Filled in by paintFreeDays: the next Sunday and the next
+                   public holiday, when most HDB carparks are free 7am-10.30pm. -->
+              <span id="freeDays" class="chips"></span>
             </span>
             <input type="date" id="onDate" aria-label="Another date">
           </div>
@@ -444,11 +468,13 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
       <div class="where" id="where"></div>
       <div id="list"></div>
       <div class="note" id="scope">
-        <strong>Prices are for motor cars at HDB and URA carparks.</strong> The 37 mall and
-        attraction carparks from LTA show live lot counts but no price, because LTA publishes none —
-        so they are never called cheapest. Other private carparks are not included at all, and an
-        empty list here does not mean there is no parking nearby. Hours with no published rate are
-        shown as such rather than guessed at.
+        <strong>Prices come from HDB's and URA's published rates, and from each mall's own
+        website.</strong> The 40 mall and attraction carparks from LTA show live lot counts; most
+        are priced from the rates they post, read by hand with the date shown on each. A few post
+        none that can be trusted, and those show no price rather than a guess, so they are never
+        called cheapest. Most other private carparks are not included, and an empty list here does
+        not mean there is no parking nearby. Hours with no published rate are shown as such rather
+        than guessed at.
       </div>
     </div>
   </div>
@@ -655,6 +681,10 @@ const SORTS = [
   { key: "near", label: "Nearest" },
   { key: "cheap", label: "Cheapest" },
   { key: "lots", label: "Most lots" },
+  // Not an order but a question: which of these cost nothing for this stay?
+  // shortlist() answers it from a wider pool, because the nearest 40 in a
+  // town centre may hold no free carpark at all while the estate behind does.
+  { key: "free", label: "Free" },
 ];
 
 // A carpark that cannot be priced or is not reporting has no place at the top
@@ -663,6 +693,7 @@ const SORTS = [
 // meaningful.
 const SORTERS = {
   near: (a, b) => a.d - b.d,
+  free: (a, b) => a.d - b.d,
   cheap: (a, b) => {
     const pa = a.fee.total === null ? Infinity : a.fee.total;
     const pb = b.fee.total === null ? Infinity : b.fee.total;
@@ -790,7 +821,13 @@ function toggleSaved(id) {
 // Anchored on the map centre rather than your GPS position, because panning
 // somewhere to ask "what would parking cost over there" is the whole reason to
 // put a map on the front.
+// How far the Free view looks. The nearest 40 are a few hundred metres in a
+// town centre; this is roughly a kilometre, still a walk, and costs 150 price
+// calculations - small next to the 24 x 40 the verdict already runs.
+const FREE_POOL = 150;
+
 function shortlist(limit) {
+  if (state.sort === "free") return freeShortlist(limit);
   const c0 = state.centre;
   return state.carparks
     .filter((c) => !state.types.size || state.types.has(c.t))
@@ -803,6 +840,92 @@ function shortlist(limit) {
     .slice(0, limit)
     .map((x) => ({ c: x.c, d: x.d, fee: priceOf(x.c), live: state.live && state.live.get(x.c.i) }))
     .sort(SORTERS[state.sort] || SORTERS.near);
+}
+
+function freeShortlist(limit) {
+  const c0 = state.centre;
+  const pool = state.carparks
+    .filter((c) => !state.types.size || state.types.has(c.t))
+    .map((c) => ({ c, d: haversine(c0.lat, c0.lng, c.y, c.x) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, FREE_POOL)
+    .map((x) => ({ c: x.c, d: x.d, fee: priceOf(x.c), live: state.live && state.live.get(x.c.i) }));
+  const free = pool.filter((r) => r.fee.total === 0);
+  // Nothing free for this stay: say where it turns free soonest instead of
+  // leaving an empty list. "Free from 5pm, 300 m away" is the useful answer.
+  state.freeHint = null;
+  if (!free.length) {
+    const start = stayStart();
+    let best = null;
+    for (const r of pool) {
+      const from = freeFrom(r.c, start);
+      if (from === null) continue;
+      if (!best || from < best.from || (from === best.from && r.d < best.d)) best = { ...r, from };
+    }
+    state.freeHint = best;
+  }
+  return free.slice(0, limit);
+}
+
+// ---- free time, read off the rate engines --------------------------------
+//
+// Whether a carpark is free at some moment is whatever its own engine says a
+// short stay then costs. Asking the engines, rather than reading HDB's free
+// parking windows, gives one answer for every source: HDB's Sunday free
+// parking, URA's $0.00 rows and a mall's free lunch window all come out as
+// "$0 for that half hour". Probes are 30 minutes, the resolution every
+// published free window falls on, and longer than any grace period, so a
+// grace period never reads as a free window.
+const PROBE = 30;
+const freeCache = new Map();
+
+function freeSlots(c, date) {
+  const key = c.i + "|" + date + "|" + state.vehicle;
+  if (freeCache.has(key)) return freeCache.get(key);
+  const slots = [];
+  for (let k = 0; k < 1440 / PROBE; k++) {
+    slots.push(feeForCarpark(c, sgDateAt(date, k * PROBE), PROBE).total === 0);
+  }
+  if (freeCache.size > 5000) freeCache.clear();
+  freeCache.set(key, slots);
+  return slots;
+}
+
+// The minute of the day that free parking next begins, after start and on
+// the same day; null if it does not.
+function freeFrom(c, start) {
+  const p = sgParts(start);
+  const slots = freeSlots(c, p.date);
+  for (let k = Math.floor(p.minutes / PROBE) + 1; k < slots.length; k++) if (slots[k]) return k * PROBE;
+  return null;
+}
+
+// "Free till 10:30pm" for a stay that is free, "Free from 5:00pm" for one that
+// is not but could be later that day; null when neither applies.
+function freeTag(c, fee) {
+  if (fee.total === null) return null;
+  const start = stayStart();
+  const p = sgParts(start);
+  const slots = freeSlots(c, p.date);
+  const i = Math.floor(p.minutes / PROBE);
+  const at = (m) => clockAt(sgDateAt(p.date, m));
+  if (fee.total === 0) {
+    // Free only because the stay fits in a grace period: no window to name.
+    if (!slots[i]) return null;
+    let j = i;
+    while (j < slots.length && slots[j]) j++;
+    let k = i;
+    while (k > 0 && slots[k - 1]) k--;
+    if (j === slots.length && k === 0) return { text: "Free all day", free: true };
+    return { text: "Free till " + (j === slots.length ? "midnight" : at(j * PROBE)), free: true };
+  }
+  const from = freeFrom(c, start);
+  return from === null ? null : { text: "Free from " + at(from), free: false };
+}
+
+function freeTagHtml(c, fee) {
+  const t = freeTag(c, fee);
+  return t ? '<span class="tag ' + (t.free ? "free" : "soon") + '">' + t.text + "</span>" : "";
 }
 
 function occupancy(live) {
@@ -955,7 +1078,6 @@ function relayoutPins() {
 function cardHtml(row) {
   const now = new Date();
   const c = row.c, fee = row.fee, live = row.live;
-  const freeNow = W.isFreeAt(state.windows[c.f], now, isHoliday(sgDate(now)));
   const f = feeText(fee);
   const isSaved = loadSaved().indexOf(c.i) !== -1;
   const occ = occupancy(live);
@@ -980,7 +1102,7 @@ function cardHtml(row) {
     delta === 0 && state.priceSpread
       ? '<span class="tag cheapest-tag">Cheapest nearby</span>' : "",
     delta ? '<span class="tag">+' + money(delta) + " vs cheapest nearby</span>" : "",
-    freeNow ? '<span class="tag free">Free right now</span>' : "",
+    freeTagHtml(c, fee),
     fee.peak ? '<span class="tag dear">Peak-hour rates</span>' : "",
     fee.central && !fee.peak ? '<span class="tag dear">Central Area</span>' : "",
     fee.capApplied === "night" ? '<span class="tag">Night cap</span>' : "",
@@ -1042,18 +1164,40 @@ function render() {
     ? '<div class="where">Saved</div>' + saved.map(cardHtml).join("") : "";
   $("#list").innerHTML = rows.length
     ? rows.slice(0, 15).map(cardHtml).join("")
+    : state.sort === "free" ? freeMissHtml()
     : '<div class="note">No carparks of that type near here. Try clearing the filters or moving the map.</div>';
   $("#scope").hidden = false;
   wireRows($("#sheetBody"));
+  const go = $("#freeGo");
+  if (go) go.addEventListener("click", () =>
+    setStay({ start: sgDateAt(sgParts(stayStart()).date, +go.dataset.at) }));
+  const sun = $("#freeSun");
+  if (sun) sun.addEventListener("click", () =>
+    setStay({ start: sgDateAt(nextSunday(), sgParts(stayStart()).minutes) }));
 
   // Say what the distances are measured from. Once the map has been panned away
   // from you, "310 m" would otherwise quietly start meaning something else.
   const nearMe = state.me &&
     haversine(state.me.lat, state.me.lng, state.centre.lat, state.centre.lng) < 60;
-  const lead = { near: "Nearest to", cheap: "Cheapest near", lots: "Emptiest near" }[state.sort];
+  const lead = { near: "Nearest to", cheap: "Cheapest near", lots: "Emptiest near", free: "Free for this stay near" }[state.sort] || "Near";
   $("#where").innerHTML = lead + " <strong>" + (nearMe ? "you" : "the middle of the map") + "</strong>" +
     (state.fetchedAt ? " &middot; live as of " +
       state.fetchedAt.toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit" }) : "");
+}
+
+function freeMissHtml() {
+  const h = state.freeHint;
+  const sunday = sgParts(stayStart()).date === nextSunday() ? "" :
+    ' <button type="button" class="chip" id="freeSun">Try Sunday</button>';
+  if (!h) {
+    return '<div class="note">Nothing within about a kilometre is free for this stay, or later that day.' +
+      sunday + "</div>";
+  }
+  const at = clockAt(sgDateAt(sgParts(stayStart()).date, h.from));
+  return '<div class="note">Nothing near here is free for this stay. Soonest: <b>' + tidy(h.c.a) +
+    "</b>, " + fmtDist(h.d) + " away, free from <b>" + at + "</b>. " +
+    '<button type="button" class="chip" id="freeGo" data-at="' + h.from + '">Arrive ' + at + "</button>" +
+    sunday + "</div>";
 }
 
 /* ---- when to go ---------------------------------------------------- */
@@ -1552,6 +1696,7 @@ function renderDetail() {
         // a live count and is labelled so it cannot be read as one.
         (c.k ? '<span class="dot"></span><span>' + c.k + " lots in total</span>" : "") + "</div>" +
       lots + usualLine +
+      (freeTagHtml(c, fee) ? '<div class="meta">' + freeTagHtml(c, fee) + "</div>" : "") +
       '<div class="fee-box"><div class="fee-h">Cost of this stay</div>' + feeBody + "</div>" +
       dayChartHtml(c) +
       '<a class="maps" href="https://www.google.com/maps/dir/?api=1&destination=' + c.y + "," + c.x +
@@ -1711,7 +1856,48 @@ function paintStay() {
       b.setAttribute("aria-pressed", String(addDays(today, +b.dataset.day) === p.date)));
     $("#laterBox").querySelectorAll("[data-at]").forEach((b) =>
       b.setAttribute("aria-pressed", String(+b.dataset.at === p.minutes)));
+    paintFreeDays(p.date);
   }
+}
+
+function nextSunday() {
+  const today = sgParts(new Date()).date;
+  const dow = new Date(today + "T12:00:00Z").getUTCDay();
+  return addDays(today, (7 - dow) % 7);
+}
+
+function nextHoliday() {
+  const today = sgParts(new Date()).date;
+  let best = null;
+  for (const d of state.holidays) if (d >= today && (!best || d < best)) best = d;
+  return best;
+}
+
+// Sunday and the next public holiday, one tap each. Skipped when they are
+// already today or tomorrow, which have their own chips.
+function paintFreeDays(selected) {
+  const box = $("#freeDays");
+  if (!box) return;
+  const today = sgParts(new Date()).date;
+  const near = [today, addDays(today, 1)];
+  const days = [];
+  const sun = nextSunday();
+  if (!near.includes(sun)) days.push({ date: sun, label: "Sunday" });
+  const ph = nextHoliday();
+  if (ph && !near.includes(ph) && ph !== sun) {
+    days.push({ date: ph, label: "PH " + new Date(ph + "T12:00:00Z").toLocaleDateString("en-SG",
+      { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }) });
+  }
+  const html = days.map((d) => '<button type="button" class="chip" data-date="' + d.date +
+    '" aria-pressed="false">' + d.label + "</button>").join("");
+  if (box.dataset.html !== html) {
+    box.dataset.html = html;
+    box.innerHTML = html;
+    box.querySelectorAll("[data-date]").forEach((b) => b.addEventListener("click", () =>
+      setStay({ start: sgDateAt(b.dataset.date, sgParts(stayStart()).minutes) })));
+  }
+  box.querySelectorAll("[data-date]").forEach((b) =>
+    b.setAttribute("aria-pressed", String(b.dataset.date === selected)));
 }
 
 function setStay(patch) {

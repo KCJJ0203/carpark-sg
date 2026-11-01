@@ -25,7 +25,9 @@
 // v13: malls show live lot counts, read from the repo; that fetch is never cached.
 // v14: malls and the cruise centre are priced from their own posted rates
 // (rates.js grew a third engine), and Keppel Bay Tower joined the map.
-const VERSION = "v14";
+// v15: "park free" - a Free view, free-till / free-from tags, Sunday and
+// public-holiday chips.
+const VERSION = "v15";
 const TILES = "tiles-v1";
 const SHELL = [
   "./", "./index.html", "./carparks.min.json", "./holidays.json", "./patterns.json",
