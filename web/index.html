@@ -464,6 +464,11 @@ const W = window.CarparkRates.windows;
 // engine off their own rate table. Both engines return the same shape, which
 // is what lets one list mix the two sources without special-casing every row.
 const U = window.CarparkRates.ura;
+// Malls and private carparks: rates transcribed from each one's own website
+// (src/mall-tariffs.js), priced by src/mall-rates.js. A carpark with no entry
+// there stays unpriced.
+const M = window.CarparkRates.mall;
+const MALL_TARIFFS = window.CarparkRates.mallTariffs;
 
 const state = {
   carparks: null, windows: [], rateTables: [], holidays: new Set(), patterns: {},
@@ -522,7 +527,8 @@ function forEngine(c) {
 // rather than worked out here, because the thing it decides is which rate
 // engine may price the carpark - and guessing that wrong means quoting a price
 // that is not real. See SOURCE_CODES in scripts/build-web.js.
-const HDB = "h", URA = "u", LTA = "l";
+const HDB = "h", URA = "u", LTA = "l", PRIVATE = "p";
+const hasMallRates = (c) => (sourceOf(c) === LTA || sourceOf(c) === PRIVATE) && !!MALL_TARIFFS[c.i];
 const sourceOf = (c) => c.o;
 
 // A record that points at a rate table brought its prices with it; one that
@@ -538,6 +544,7 @@ const LOTS_UNKNOWN = {
   // Normally the malls DO show a count (see loadMallLive); this is the
   // fallback for a mall LTA skipped or a collector that has stopped.
   [LTA]: "No recent lot count for this mall",
+  [PRIVATE]: "This carpark publishes no live lot count",
 };
 const lotsUnknownText = (c) => LOTS_UNKNOWN[sourceOf(c)] || "No live data for this carpark";
 
@@ -574,7 +581,13 @@ function feeForCarpark(c, start, minutes) {
   // free-parking window. There is no engine that can price these, and falling
   // back to HDB's schedule would put a made-up price on Ngee Ann City. So they
   // are reported as unpriced, and stay out of every cheapest claim.
-  if (sourceOf(c) === LTA) return { ...NOT_PRICED, unavailable: "source-has-no-rates", minutes };
+  //
+  // Except where someone has read the mall's own posted rates into
+  // src/mall-tariffs.js: those are priced by their own engine, for cars only.
+  if (sourceOf(c) === LTA || sourceOf(c) === PRIVATE) {
+    if (state.vehicle !== "car") return { ...NOT_PRICED, minutes };
+    return M.feeFor(MALL_TARIFFS[c.i], start, minutes, isHoliday);
+  }
   // HDB's published schedule is for motor cars, and this project transcribed
   // exactly that. It says nothing about motorcycles or lorries, so those are
   // reported as not priced rather than quoted at the car rate - which would be
@@ -1353,8 +1366,18 @@ function dayChartHtml(c) {
   }).join("");
 
   const at = (h) => clockAt(sgDateAt(sgParts(stayStart()).date, h * 60));
+  // Runs of cheapest hours read as ranges. A mall that charges the same from
+  // 4am to 10pm would otherwise list nineteen times joined by "or".
+  const runs = [];
+  for (const h of cheapest) {
+    const last = runs[runs.length - 1];
+    if (last && h === last[1] + 1) last[1] = h; else runs.push([h, h]);
+  }
+  const when = runs.map((r) => r[0] === r[1] ? at(r[0])
+    : r[1] === r[0] + 1 ? at(r[0]) + " or " + at(r[1])
+    : "any time from " + at(r[0]) + " to " + at(r[1])).join(" or ");
   const note = max > min
-    ? "Cheapest arriving <b>" + cheapest.map(at).join(" or ") + "</b> at <b>" +
+    ? "Cheapest arriving <b>" + when + "</b> at <b>" +
       (min === 0 ? "no charge" : money(min)) + "</b>, against " + money(max) +
       " at the dearest hour. Tap a bar to price that arrival."
     : "The same " + (min === 0 ? "no charge" : money(min)) +
@@ -1447,10 +1470,12 @@ function renderDetail() {
           " rate to quote here. Check the signboard.") + "</div>";
   } else if (fee.unavailable === "source-has-no-rates") {
     feeBody = '<div class="fee-total"><span class="fee-n none">No published price</span></div>' +
-      '<div class="note" style="margin:0">LTA DataMall reports how many lots are free here and ' +
-      "nothing else - no rate, no cap, no free-parking hours. Rather than borrow HDB's or URA's " +
-      "prices, which do not apply to this carpark, this site quotes nothing. The rate is on the " +
-      "signboard at the entrance.</div>";
+      '<div class="note" style="margin:0">' + (sourceOf(c) === PRIVATE
+        ? "This carpark publishes its rates nowhere this site can read."
+        : "LTA DataMall reports how many lots are free here and nothing else - no rate, no cap, no " +
+          "free-parking hours - and this mall's own posted rates have not been read in yet.") +
+      " Rather than borrow HDB's or URA's prices, which do not apply here, this site quotes " +
+      "nothing. The rate is on the signboard at the entrance.</div>";
   } else if (fee.unavailable === "rate-not-published") {
     feeBody = '<div class="fee-total"><span class="fee-n none">Price not published</span></div>' +
       '<div class="note" style="margin:0">URA publishes no rate for part of that stay here. It may ' +
@@ -1470,6 +1495,8 @@ function renderDetail() {
       "</span><span>" + (l.amount < 0 ? "−" : "") + money(Math.abs(l.amount)) + "</span></div>").join("");
 
     const own = hasOwnRates(c);
+    const hdb = sourceOf(c) === HDB;
+    const tariff = hasMallRates(c) ? MALL_TARIFFS[c.i] : null;
     const extras = [
       fee.couponTotal !== null && fee.couponTotal !== fee.total
         ? "Coupon carpark. A paper coupon buys a whole block however little of it you use, so " +
@@ -1478,11 +1505,18 @@ function renderDetail() {
         : "",
       // The 15-minute grace period and the peak-hour surcharge are HDB rules.
       // URA publishes neither, so neither is claimed at a URA carpark.
-      !own && fee.grace
+      hdb && fee.grace
         ? "Under the 15-minute grace period at an electronic carpark, so there is nothing to pay." : "",
-      !own && !fee.grace && fee.method === "electronic"
+      hdb && !fee.grace && fee.method === "electronic"
         ? "Charged by the minute, and free if you leave within 15 minutes of entering." : "",
-      !own && fee.peak
+      tariff && tariff.grace && !fee.grace
+        ? "Free if you leave within " + tariff.grace + " minutes of entering." : "",
+      tariff && fee.crossed
+        ? "This stay runs from one rate period into another. The carpark does not say how it bills " +
+          "that, so this assumes each period charges for the time spent in it, with the first-hour " +
+          "rate only where you arrived. Treat it as an estimate." : "",
+      tariff && tariff.note ? tariff.note + "." : "",
+      hdb && fee.peak
         ? "One of the 12 HDB carparks with peak-hour surcharges. The daily and nightly caps do not apply here."
         : "",
       own && fee.capApplied === "window"
@@ -1527,9 +1561,21 @@ function renderDetail() {
         "and it does not know about the expressway in between.</div>" +
       // Where the numbers came from, per source. A driver deciding whether to
       // trust a price is entitled to know who published it and when.
-      (sourceOf(c) === LTA
+      (hasMallRates(c)
+        ? '<div class="note">' + (MALL_TARIFFS[c.i].secondary
+            ? "This carpark posts no rates of its own; these are from LTA OneMotoring's guide"
+            : "Rates are the ones this carpark posts on its own website") +
+          ', read on ' + MALL_TARIFFS[c.i].read + '. <a href="' + MALL_TARIFFS[c.i].source +
+          '" target="_blank" rel="noopener">Check them yourself</a>. Carparks change rates without ' +
+          "notice, so the signboard at the entrance has the final word." +
+          (sourceOf(c) === LTA ? " Lot counts come from LTA DataMall." : "") + "</div>"
+        : sourceOf(c) === LTA
         ? '<div class="note">Lot counts come from LTA DataMall. It publishes no prices at all, ' +
-          "so this site shows none for this carpark rather than guessing one.</div>"
+          "and this mall's own rates have not been read into this site yet, so it shows none " +
+          "rather than guessing one.</div>"
+        : sourceOf(c) === PRIVATE
+        ? '<div class="note">This carpark is in no public data feed. Its rates are not published ' +
+          "anywhere this site can read, so it shows none rather than guessing one.</div>"
         : sourceOf(c) === URA
         ? '<div class="note">Rates come from URA’s own Car Park Details service, so they are ' +
           "whatever URA currently publishes for this carpark.</div>"

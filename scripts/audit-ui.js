@@ -669,7 +669,10 @@ async function auditPriceChart(browser, errors) {
   await page.evaluate(() => goTo(1.3006, 103.8388, 16));
   await page.waitForTimeout(900);
   const picked = await page.evaluate(() => {
-    const row = state.lastRows.find((r) => r.fee.total !== null);
+    // A street carpark: several malls here now carry posted rates, and some
+    // (313@Somerset) charge the same at every hour, which is a flat chart by
+    // design and audits nothing.
+    const row = state.lastRows.find((r) => r.fee.total !== null && r.c.o !== "l" && r.c.o !== "p");
     if (!row) return null;
     const el = [...document.querySelectorAll(".row[data-id]")].find((e) => e.dataset.id === row.c.i);
     if (el) el.click();
@@ -921,14 +924,16 @@ async function auditMalls(browser, errors) {
   // The bug this whole refactor exists to prevent: before the record carried
   // its source, an LTA mall had no rate table, and "no rate table" meant "price
   // it with HDB's schedule". That would put a real-looking price on ION.
+  // Ngee Ann City: a mall whose own posted rates are NOT in src/mall-tariffs.js
+  // (its page quotes before-GST prices from 2003), so it must stay unpriced.
   const priced = await page.evaluate(() => {
-    const c = state.carparks.find((x) => x.i === "lta:23");
+    const c = state.carparks.find((x) => x.i === "lta:13");
     const at = new Date("2026-08-19T14:00:00+08:00");
     const f = feeForCarpark(c, at, 120);
     const hdb = state.carparks.find((x) => x.o === "h");
     return { total: f.total, why: f.unavailable, hdbTotal: feeForCarpark(hdb, at, 120).total };
   });
-  check("a mall is not quoted a price",
+  check("a mall with no transcribed rates is not quoted a price",
     priced.total === null && priced.why === "source-has-no-rates",
     "total " + priced.total + " / " + priced.why);
   check("specifically, it is not quoted HDB's price",
@@ -943,6 +948,7 @@ async function auditMalls(browser, errors) {
     ltaRows: state.lastRows.filter((r) => r.c.o === "l").length,
     cheapest: state.cheapestNearby,
     ltaTotals: state.lastRows.filter((r) => r.c.o === "l").map((r) => r.fee.total),
+    unpriced: state.lastRows.filter((r) => r.fee.total === null).map((r) => r.c.i),
     tagged: [...document.querySelectorAll(".row[data-id]")]
       .filter((e) => /Cheapest nearby/.test(e.textContent))
       .map((e) => e.dataset.id),
@@ -950,23 +956,25 @@ async function auditMalls(browser, errors) {
   check("malls appear alongside the streets around Orchard", orchard.ltaRows > 0,
     orchard.ltaRows + " of " + orchard.rows);
   check("an unpriced mall never carries the cheapest badge",
-    orchard.tagged.every((id) => !id.startsWith("lta:")), JSON.stringify(orchard.tagged));
+    orchard.tagged.every((id) => !orchard.unpriced.includes(id)), JSON.stringify(orchard.tagged));
   check("and is excluded from the cheapest figure itself",
-    orchard.ltaTotals.every((t) => t === null) && orchard.cheapest !== null,
+    orchard.cheapest !== null && orchard.ltaTotals.every((t) => t === null || t >= orchard.cheapest),
     "cheapest $" + orchard.cheapest);
+  check("malls with posted rates are priced alongside the streets",
+    orchard.ltaTotals.some((t) => t !== null), JSON.stringify(orchard.ltaTotals));
 
   // It has to say so in words on the card, not just leave a gap. Checked in the
   // default nearest-first order: sorting by price pushes the unpriced past the
   // end of the rendered list, which is the correct behaviour and would leave
   // this check reading an empty DOM.
   const said = await page.evaluate(() => {
-    const el = [...document.querySelectorAll(".row[data-id]")].find((e) => e.dataset.id === "lta:23");
+    const el = [...document.querySelectorAll(".row[data-id]")].find((e) => e.dataset.id === "lta:13");
     return el ? el.querySelector(".price").textContent.trim() : null;
   });
   check("the card says there is no published price", said === "No published price", said);
 
   await page.evaluate(() => {
-    const el = [...document.querySelectorAll(".row[data-id]")].find((e) => e.dataset.id === "lta:23");
+    const el = [...document.querySelectorAll(".row[data-id]")].find((e) => e.dataset.id === "lta:13");
     el.click();
   });
   await page.waitForTimeout(600);
@@ -981,6 +989,31 @@ async function auditMalls(browser, errors) {
     !/HDB’s published schedule|HDB's published schedule/.test(detail.body));
   check("the lot count is shown without a made-up denominator",
     !/of null lots|of undefined lots|of 0 lots/.test(detail.body));
+
+  // A mall whose posted rates ARE transcribed: priced from them, never from
+  // HDB's schedule, and the panel says whose rates they are and when read.
+  const vivo = await page.evaluate(() => {
+    const c = state.carparks.find((x) => x.i === "lta:16");
+    const f = feeForCarpark(c, new Date("2026-11-03T14:00:00+08:00"), 120);
+    return { total: f.total, why: f.unavailable };
+  });
+  check("VivoCity is priced from its own posted rates ($1.60 + 2 x $0.80)",
+    vivo.total === 3.2, JSON.stringify(vivo));
+  await page.evaluate(() => { closeDetail(); openDetail("lta:16"); });
+  await page.waitForTimeout(600);
+  const vivoPanel = await page.evaluate(() => document.querySelector("#list").textContent.replace(/\s+/g, " "));
+  check("its panel names the source and the date it was read",
+    /posts on its own website/.test(vivoPanel) && /read on 2026-/.test(vivoPanel), vivoPanel.slice(-300));
+  check("and does not claim HDB's 15-minute grace period",
+    !/within 15 minutes of entering/.test(vivoPanel));
+  const scc = await page.evaluate(() => {
+    const c = state.carparks.find((x) => x.i === "manual:scc");
+    const k = state.carparks.find((x) => x.i === "manual:kbt");
+    return { scc: c && feeForCarpark(c, new Date("2026-11-03T14:00:00+08:00"), 120).total,
+             kbt: k && feeForCarpark(k, new Date("2026-11-03T14:00:00+08:00"), 120).unavailable };
+  });
+  check("the cruise centre is on the map and priced ($2.80 an hour)", scc.scc === 5.6, JSON.stringify(scc));
+  check("Keppel Bay Tower is on the map, unpriced", scc.kbt === "source-has-no-rates", JSON.stringify(scc));
 
   // Sorting by price must not treat "no price" as free. Done last, because it
   // reorders the list out from under everything above.

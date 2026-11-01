@@ -23,7 +23,9 @@
 // v12: error responses are no longer cached, and "live as of" only shows when
 // a live reading actually arrived.
 // v13: malls show live lot counts, read from the repo; that fetch is never cached.
-const VERSION = "v13";
+// v14: malls and the cruise centre are priced from their own posted rates
+// (rates.js grew a third engine), and Keppel Bay Tower joined the map.
+const VERSION = "v14";
 const TILES = "tiles-v1";
 const SHELL = [
   "./", "./index.html", "./carparks.min.json", "./holidays.json", "./patterns.json",

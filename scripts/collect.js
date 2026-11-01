@@ -13,13 +13,14 @@ const path = require("path");
 const hdb = require("../src/sources/hdb");
 const ura = require("../src/sources/ura");
 const lta = require("../src/sources/lta");
+const manual = require("../src/sources/manual");
 const { encodeSnapshot } = require("../src/history");
 
 const DATA = path.join(__dirname, "..", "data");
 const HISTORY = path.join(DATA, "history");
 
 // Registering a source here is all it should ever take to add one.
-const SOURCES = [hdb, ura, lta];
+const SOURCES = [hdb, ura, lta, manual];
 
 function sgDateStamp(d) {
   // Files are named by SINGAPORE date, not UTC: a run at 08:00 SGT belongs to

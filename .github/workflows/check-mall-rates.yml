@@ -1,0 +1,39 @@
+# Weekly watchdog on the malls' own posted parking rates (src/mall-tariffs.js).
+#
+# Each tariff lists the figures that must still appear on its source page. A
+# figure that has gone means the mall changed its rates and Carpark SG is
+# quoting old ones: the run FAILS, and GitHub emails the repo owner. A page
+# that could not be read at all (blocked, down, moved) is only a warning,
+# because it says nothing about the rates.
+#
+# Unlike HDB's check this needs no browser: every page here is plain HTML, or
+# its tariff names LTA OneMotoring's guide as the page to check instead.
+
+name: Check mall rates
+
+on:
+  schedule:
+    - cron: "17 1 * * 1"   # Mondays 09:17 SGT
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Compare each mall's page with the transcribed rates
+        run: |
+          set +e
+          node scripts/check-mall-rates.js
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::Some rate pages could not be read. Not treating that as a rate change."
+            exit 0
+          fi
+          exit $code
