@@ -93,3 +93,50 @@ test("keeps every lot type, not just cars", () => {
   assert.strictEqual(a.lots.length, 2);
   assert.strictEqual(a.lots[1].type, "Y");
 });
+
+// A bad day at data.gov.sg must throw, so scripts/collect.js keeps the last
+// known records instead of publishing a half-empty map.
+const { fetchCarparks, fetchAvailability, MIN_CARPARKS, MIN_AVAILABILITY } = require("../src/sources/hdb");
+
+function infoPages(total) {
+  return async (url) => {
+    const offset = Number(/offset=(\d+)/.exec(url)[1]);
+    const n = Math.max(0, Math.min(1000, total - offset));
+    const records = Array.from({ length: n }, (_, i) =>
+      Object.assign({}, RAW, { car_park_no: "T" + (offset + i) }));
+    return { success: true, result: { records } };
+  };
+}
+
+test("fetchCarparks reads every page of a healthy response", async () => {
+  const r = await fetchCarparks(infoPages(2270));
+  assert.strictEqual(r.carparks.length, 2270);
+});
+
+test("fetchCarparks throws on success:false instead of treating it as the last page", async () => {
+  let calls = 0;
+  const get = async (url) => {
+    calls++;
+    if (calls === 1) return infoPages(2270)(url);
+    return { success: false, error: { message: "rate limited" } };
+  };
+  await assert.rejects(fetchCarparks(get), /bad response at offset 1000/);
+});
+
+test("fetchCarparks throws when far fewer carparks come back than expected", async () => {
+  await assert.rejects(fetchCarparks(infoPages(MIN_CARPARKS - 1)), /expected at least/);
+});
+
+test("fetchCarparks passes on a non-200 error from the fetcher", async () => {
+  await assert.rejects(fetchCarparks(async () => { throw new Error("data.gov.sg answered 503"); }), /503/);
+});
+
+test("fetchAvailability throws on a thin or empty feed", async () => {
+  const rows = (n) => async () => ({ items: [{ carpark_data: Array.from({ length: n }, (_, i) => ({
+    carpark_number: "T" + i, update_datetime: "2026-11-01T10:00:00",
+    carpark_info: [{ total_lots: "100", lot_type: "C", lots_available: "40" }],
+  })) }] });
+  assert.strictEqual((await fetchAvailability(rows(2015))).length, 2015);
+  await assert.rejects(fetchAvailability(rows(MIN_AVAILABILITY - 1)), /expected at least/);
+  await assert.rejects(fetchAvailability(async () => ({})), /only 0/);
+});

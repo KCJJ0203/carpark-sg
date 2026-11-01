@@ -16,6 +16,15 @@ const SOURCE = "hdb";
 const INFO_RESOURCE = "d_23f946fa557947f93a8043bbef41dd09";
 const AVAILABILITY_URL = "https://api.data.gov.sg/v1/transport/carpark-availability";
 
+// Floors, not targets (same idea as MIN_EXPECTED in lta.js). The info dataset
+// holds ~2,270 carparks and ~2,015 report live. A run that comes back well short
+// of that is data.gov.sg having a bad day (rate limit, an error body, a page
+// that failed mid-pagination), not hundreds of carparks closing. Throwing makes
+// scripts/collect.js keep the records it already has instead of publishing a
+// half-empty map.
+const MIN_CARPARKS = 2000;
+const MIN_AVAILABILITY = 1500;
+
 function getJson(url) {
   return new Promise((resolve, reject) => {
     https
@@ -23,6 +32,9 @@ function getJson(url) {
         let d = "";
         res.on("data", (c) => (d += c));
         res.on("end", () => {
+          if (res.statusCode !== 200) {
+            return reject(new Error("data.gov.sg answered " + res.statusCode + " for " + url));
+          }
           try { resolve(JSON.parse(d)); } catch (e) { reject(new Error("bad JSON from " + url)); }
         });
       })
@@ -79,7 +91,8 @@ function toAvailability(raw) {
   };
 }
 
-async function fetchCarparks() {
+// `get` is injectable so the guards below can be tested without the network.
+async function fetchCarparks(get = getJson) {
   const out = [];
   let dropped = 0;
   let offset = 0;
@@ -87,8 +100,14 @@ async function fetchCarparks() {
     const url =
       "https://data.gov.sg/api/action/datastore_search?resource_id=" +
       INFO_RESOURCE + "&limit=1000&offset=" + offset;
-    const j = await getJson(url);
-    const records = (j.result && j.result.records) || [];
+    const j = await get(url);
+    // data.gov.sg reports errors (rate limits included) as success:false with no
+    // records, which would otherwise read as "last page" and end the loop early.
+    if (!j || j.success !== true || !j.result || !Array.isArray(j.result.records)) {
+      throw new Error("HDB carpark info: bad response at offset " + offset +
+        (j && j.error ? " (" + JSON.stringify(j.error).slice(0, 200) + ")" : ""));
+    }
+    const records = j.result.records;
     for (const r of records) {
       const c = toCarpark(r);
       if (c) out.push(c); else dropped++;
@@ -96,13 +115,24 @@ async function fetchCarparks() {
     if (records.length < 1000) break;
     offset += 1000;
   }
+  if (out.length < MIN_CARPARKS) {
+    throw new Error("HDB carpark info carried only " + out.length + " usable carparks, expected at least " +
+      MIN_CARPARKS + " - treating as a bad response rather than a shrinking dataset");
+  }
   return { carparks: out, dropped };
 }
 
-async function fetchAvailability() {
-  const j = await getJson(AVAILABILITY_URL);
-  const item = (j.items || [])[0] || {};
-  return (item.carpark_data || []).map(toAvailability);
+async function fetchAvailability(get = getJson) {
+  const j = await get(AVAILABILITY_URL);
+  const item = ((j && j.items) || [])[0] || {};
+  const rows = (item.carpark_data || []).map(toAvailability);
+  if (rows.length < MIN_AVAILABILITY) {
+    throw new Error("HDB availability carried only " + rows.length + " carparks, expected at least " +
+      MIN_AVAILABILITY);
+  }
+  return rows;
 }
 
-module.exports = { SOURCE, toCarpark, toAvailability, fetchCarparks, fetchAvailability };
+module.exports = {
+  SOURCE, MIN_CARPARKS, MIN_AVAILABILITY, toCarpark, toAvailability, fetchCarparks, fetchAvailability,
+};
