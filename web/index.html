@@ -535,7 +535,9 @@ const hasOwnRates = (c) => sourceOf(c) === URA;
 const LOTS_UNKNOWN = {
   [HDB]: "No live data for this carpark",
   [URA]: "URA publishes live lot counts for only about one carpark in eight, and not for this one",
-  [LTA]: "No live count reported for this carpark right now",
+  // Normally the malls DO show a count (see loadMallLive); this is the
+  // fallback for a mall LTA skipped or a collector that has stopped.
+  [LTA]: "No recent lot count for this mall",
 };
 const lotsUnknownText = (c) => LOTS_UNKNOWN[sourceOf(c)] || "No live data for this carpark";
 
@@ -678,7 +680,7 @@ async function loadStatic() {
 
 // Fetched straight from data.gov.sg: the API sends Access-Control-Allow-Origin: *,
 // so no server of our own sits in the middle.
-async function loadLive() {
+async function loadHdbLive() {
   const r = await fetch("https://api.data.gov.sg/v1/transport/carpark-availability");
   // A rate-limit or error page can still be JSON. Without this check it would
   // parse to nothing and the page would still say "live as of" a time when no
@@ -699,6 +701,37 @@ async function loadLive() {
     });
   }
   if (!map.size) throw new Error("availability carried no carparks");
+  return map;
+}
+
+// The malls' counts. LTA DataMall needs a key a static page cannot hold, so the
+// server collector writes its latest reading into the repo every half hour (see
+// writeMallLive in scripts/collect.js) and this reads it back. LTA publishes
+// lots FREE and never a total, so these carry no total and draw no bar.
+const MALL_LIVE_URL = "https://raw.githubusercontent.com/KCJJ0203/carpark-sg/main/data/live-lta.json";
+// Collected every 30 minutes and cached up to 5 more by GitHub, so a healthy
+// reading is under ~40 minutes old. Past this the collector has stopped, and a
+// count that old says nothing about whether you will find a space now.
+const MALL_LIVE_MAX_AGE = 90 * 60000;
+
+async function loadMallLive() {
+  const r = await fetch(MALL_LIVE_URL, { cache: "no-store" });
+  if (!r.ok) throw new Error("mall counts answered " + r.status);
+  const j = await r.json();
+  const at = new Date(j.at);
+  if (isNaN(at) || Date.now() - at.getTime() > MALL_LIVE_MAX_AGE) throw new Error("mall counts are stale");
+  const map = new Map();
+  for (const [id, n] of Object.entries(j.lots || {})) {
+    map.set(id, { total: null, available: typeof n === "number" ? n : null, at });
+  }
+  return map;
+}
+
+async function loadLive() {
+  const [hdbLive, mallLive] = await Promise.allSettled([loadHdbLive(), loadMallLive()]);
+  const map = new Map();
+  for (const r of [hdbLive, mallLive]) if (r.status === "fulfilled") for (const [k, v] of r.value) map.set(k, v);
+  if (!map.size) throw new Error("no live counts arrived");
   state.live = map;
   state.fetchedAt = new Date();
 }
@@ -920,6 +953,10 @@ function cardHtml(row) {
     lots = '<span class="lots"><span class="n" style="color:' + colour + '">' + live.available +
       '</span><span class="of">of ' + live.total + ' lots free</span></span>' +
       '<span class="barline"><i style="width:' + (occ * 100).toFixed(0) + '%;background:' + colour + '"></i></span>';
+  } else if (live && live.available !== null) {
+    // A count with no total (the malls): a number, no bar, no colour - there
+    // is nothing to say how full it is.
+    lots = '<span class="lots"><span class="n">' + live.available + '</span><span class="of">lots free</span></span>';
   } else if (live) {
     lots = '<span class="meta">Not reporting lot counts right now</span>';
   }
@@ -1373,6 +1410,11 @@ function renderDetail() {
       (age !== null ? '<div class="meta">Updated ' + (age < 1 ? "just now" : age + " min ago") + "</div>" : "") +
       (looksUnreported(live.total, live.available)
         ? '<div class="meta">Every lot reported free, which usually means the sensors are down.</div>' : "");
+  } else if (live && live.available !== null) {
+    const age = live.at ? Math.round((now - live.at) / 60000) : null;
+    lots = '<div class="lots"><span class="n">' + live.available + '</span><span class="of">lots free</span></div>' +
+      '<div class="meta">' + (age !== null ? "Updated " + (age < 1 ? "just now" : age + " min ago") + ". " : "") +
+      "The mall reports free lots but not how many it has, so there is no fullness bar.</div>";
   } else if (live) {
     lots = '<div class="meta">Not reporting lot counts right now</div>';
   }

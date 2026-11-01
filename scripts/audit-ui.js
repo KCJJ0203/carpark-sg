@@ -15,6 +15,7 @@ const { chromium } = require("playwright");
 const ROOT = path.resolve(path.join(__dirname, "..", "web"));
 const LIVE = process.argv.includes("--live");
 const PORT = 8742;
+const CLOCK = process.env.AUDIT_CLOCK || null;
 const TYPES = {
   ".html": "text/html", ".js": "text/javascript", ".json": "application/json",
   ".css": "text/css", ".png": "image/png", ".webmanifest": "application/manifest+json",
@@ -49,6 +50,23 @@ async function open(browser, width, height, errors, opts) {
     locale: "en-SG",
     timezoneId: "Asia/Singapore",
   });
+  // AUDIT_CLOCK=2026-11-02T13:00:00+08:00 pins the page's clock. The price
+  // checks need a daytime hour: at night "now" and the next hours share one
+  // rate, so nothing re-prices and those checks fail for no fault of the page.
+  if (CLOCK) await ctx.clock.install({ time: new Date(CLOCK) });
+  // The malls' counts come from the repo on GitHub, which a local run must not
+  // depend on. Serve a reading of known age instead (opts.mallAgeMin, default
+  // fresh), so both "shown" and "too old to show" can be tested.
+  if (!LIVE) {
+    const base = CLOCK ? new Date(CLOCK).getTime() : Date.now();
+    await ctx.route("https://raw.githubusercontent.com/**", (route) => route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        at: new Date(base - ((opts && opts.mallAgeMin) || 3) * 60000).toISOString(),
+        lots: { "lta:23": 321, "lta:16": 82, "lta:13": null },
+      }),
+    }));
+  }
   const page = await ctx.newPage();
   page.on("pageerror", (e) => errors.push(width + "px pageerror: " + e));
   page.on("console", (m) => { if (m.type() === "error") errors.push(width + "px console: " + m.text()); });
@@ -875,6 +893,22 @@ async function auditMalls(browser, errors) {
     };
   });
   check("the malls are on the map", payload.lta >= 25, payload.lta + " LTA carparks");
+
+  // Live counts for the malls, read from the collector's file in the repo.
+  if (!LIVE) {
+    const mall = await page.evaluate(() => ({
+      ion: state.live && state.live.get("lta:23"),
+      blank: state.live && state.live.get("lta:13"),
+    }));
+    check("a mall shows the collector's lot count", mall.ion && mall.ion.available === 321 && mall.ion.total === null,
+      JSON.stringify(mall.ion));
+    check("a mall LTA left blank stays unknown, not full", mall.blank && mall.blank.available === null,
+      JSON.stringify(mall.blank));
+    const old = await open(browser, 1600, 1000, errors, { mallAgeMin: 180 });
+    const stale = await old.page.evaluate(() => !!(state.live && state.live.get("lta:23")));
+    check("a three-hour-old mall count is not shown as live", !stale);
+    await old.ctx.close();
+  }
   check("every carpark says which feed it came from", payload.unsourced === 0,
     payload.unsourced + " without a source");
   check("ION Orchard is one of them", payload.ion && /ION/i.test(payload.ion.a),

@@ -75,6 +75,10 @@ jobs:
         run: |
           git config user.name "carpark-collector"
           git config user.email "actions@github.com"
+          # History only. data/live-lta.json (the malls' latest counts, which the
+          # page reads) is published by the server collector alone: it is
+          # rewritten every tick, so two writers would conflict on it on every
+          # rebase and both would stop pushing.
           git add data/history
           git diff --staged --quiet || git commit -m "data: availability snapshot $(TZ=Asia/Singapore date -Iminutes)"
           # Another run may have pushed while this one worked.

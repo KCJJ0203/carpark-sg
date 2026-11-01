@@ -28,6 +28,32 @@ function sgDateStamp(d) {
   return sg.toISOString().slice(0, 10);
 }
 
+// The malls' latest lot counts, for the page.
+//
+// The page reads HDB's counts straight from data.gov.sg, but LTA DataMall
+// needs an AccountKey, and a static page cannot hold one. So the collector
+// that already holds the key writes the one reading the page needs into a
+// small file, and the page reads it from raw.githubusercontent.com, which
+// serves the repo's main branch with CORS open. It is overwritten every tick:
+// it is a "now", not history (history is the .jsonl beside it).
+//
+// Written only when LTA answered. A failed tick leaves the last file in place
+// with its own timestamp, and the page judges the age, so a stale count is
+// shown as old or not at all - never as fresh.
+const MALL_LIVE = path.join(DATA, "live-lta.json");
+
+function writeMallLive(now, records) {
+  const lots = {};
+  for (const r of records) {
+    const car = (r.lots || []).find((l) => l.type === "C");
+    if (!car) continue;
+    lots[r.id] = car.available;   // null stays null: unknown, never "full"
+  }
+  if (!Object.keys(lots).length) return;
+  fs.mkdirSync(DATA, { recursive: true });
+  fs.writeFileSync(MALL_LIVE, JSON.stringify({ at: now.toISOString(), lots }) + "\n");
+}
+
 async function collectAvailability(now) {
   fs.mkdirSync(HISTORY, { recursive: true });
   const stamp = sgDateStamp(now);
@@ -49,6 +75,7 @@ async function collectAvailability(now) {
       console.error("source " + source.SOURCE + " failed:", e.message);
       continue;
     }
+    if (source.SOURCE === lta.SOURCE) writeMallLive(now, records);
     stale += records.filter((r) => {
       if (!r.at) return false;
       return (now.getTime() - new Date(r.at + "+08:00").getTime()) / 60000 > 15;

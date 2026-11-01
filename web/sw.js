@@ -22,7 +22,8 @@
 // v10: rows carry an estimated walking time beside the distance.
 // v12: error responses are no longer cached, and "live as of" only shows when
 // a live reading actually arrived.
-const VERSION = "v12";
+// v13: malls show live lot counts, read from the repo; that fetch is never cached.
+const VERSION = "v13";
 const TILES = "tiles-v1";
 const SHELL = [
   "./", "./index.html", "./carparks.min.json", "./holidays.json", "./patterns.json",
@@ -64,6 +65,8 @@ self.addEventListener("fetch", (e) => {
 
   // Live availability is never cached, in any form.
   if (url.hostname.endsWith("data.gov.sg")) return;
+  // The malls' counts, written into the repo by the collector.
+  if (url.hostname === "raw.githubusercontent.com") return;
 
   if (url.hostname.endsWith("onemap.gov.sg")) {
     // Tiles yes, the geocoder no: a cached search result would answer a
