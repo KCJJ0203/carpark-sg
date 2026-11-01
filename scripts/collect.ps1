@@ -104,7 +104,12 @@ try {
     $commit = Invoke-Git @("commit", "-q", "-m", "data: snapshot $stamp ($machine)")
     if ($commit.Code -ne 0) { throw "git commit failed: $($commit.Output)" }
 
-    $pull = Invoke-Git @("pull", "--rebase")
+    # -X theirs: if a data file conflicts anyway, this machine's commit (the
+    # one being replayed, which in a rebase is "theirs") wins. Its reading is
+    # the newer one, and a conflict must cost one stale file, not every push
+    # from now on - which is what happened on 1 Nov 2026 with live-lta.json.
+    # History merges by union (.gitattributes), so it never conflicts.
+    $pull = Invoke-Git @("pull", "--rebase", "-X", "theirs")
     if ($pull.Code -ne 0) {
         # Never leave the repo mid-rebase: the next run would fail, and so would
         # anything KC does in here afterwards. The commit stays local and the

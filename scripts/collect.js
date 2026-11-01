@@ -44,6 +44,13 @@ function sgDateStamp(d) {
 // shown as old or not at all - never as fresh.
 const MALL_LIVE = path.join(DATA, "live-lta.json");
 
+// ONE writer for the live files, and it is the server. On 1 Nov 2026 the
+// daily publish workflow (which stages all of data/) committed its own
+// live-lta.json, and every server push after it died on a rebase conflict in
+// that file until someone looked. So inside GitHub Actions they are not
+// written at all.
+const LIVE_ELSEWHERE = !!process.env.GITHUB_ACTIONS;
+
 function writeMallLive(now, records) {
   const lots = {};
   for (const r of records) {
@@ -95,7 +102,7 @@ async function collectAvailability(now) {
       console.error("source " + source.SOURCE + " failed:", e.message);
       continue;
     }
-    if (source.SOURCE === lta.SOURCE) writeMallLive(now, records);
+    if (source.SOURCE === lta.SOURCE && !LIVE_ELSEWHERE) writeMallLive(now, records);
     stale += records.filter((r) => {
       if (!r.at) return false;
       return (now.getTime() - new Date(r.at + "+08:00").getTime()) / 60000 > 15;
@@ -162,7 +169,7 @@ async function rebuildCarparks() {
   }
   const a = await collectAvailability(now);
   console.log("availability rows:", a.written, "->", path.basename(a.file), a.stale ? "(" + a.stale + " stale >15min)" : "");
-  try {
+  if (!LIVE_ELSEWHERE) try {
     console.log("ev charger sites:", await writeEvLive(now));
   } catch (e) {
     console.error("ev chargers failed:", e.message);

@@ -74,6 +74,9 @@ jobs:
         run: |
           git config user.name "carpark-collector"
           git config user.email "actions@github.com"
+          # The live files belong to the server's collector alone (see
+          # scripts/collect.js); committing them here broke its pushes on 1 Nov.
+          git checkout -- data/live-lta.json data/live-ev.json 2>/dev/null || true
           git add data web
           git diff --staged --quiet || git commit -m "data: rebuild carpark list and usage patterns"
           git pull --rebase --autostash || true
