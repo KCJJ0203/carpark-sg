@@ -12,13 +12,13 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
 <style>
   :root {
     --bg: #f6f7f9; --card: #fff; --ink: #14181f; --muted: #5c6672; --line: #e3e7ec;
-    --ok: #17794a; --warn: #9a6200; --bad: #b3261e; --accent: #14181f;
+    --ok: #17794a; --warn: #9a6200; --bad: #b3261e; --accent: #14181f; --ev: #1f5fae;
     --scrim: rgb(0 0 0 / 0.14);
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #0f1419; --card: #171d24; --ink: #e8edf2; --muted: #94a1ae; --line: #262f39;
-      --ok: #4ac48a; --warn: #e0a33a; --bad: #ef6b62; --accent: #e8edf2;
+      --ok: #4ac48a; --warn: #e0a33a; --bad: #ef6b62; --accent: #e8edf2; --ev: #74a9ee;
       --scrim: rgb(0 0 0 / 0.45);
     }
   }
@@ -207,6 +207,9 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
   /* Free LATER that day: the same colour, but dashed, because it is not free yet. */
   .tag.soon { color: var(--ok); border: 1px dashed currentColor; }
   .tag.stale { color: var(--warn); border-color: currentColor; }
+  .tag.ev { color: var(--ev); border-color: currentColor; }
+  .tag.ev.idle { color: var(--muted); border-color: var(--line); }
+  .ev-box small.muted, .fee-box small.muted { color: var(--muted); font-size: 12px; }
   .tag.dear { color: var(--bad); border-color: currentColor; }
   .star {
     position: absolute; top: 7px; right: 7px; padding: 3px 7px; border: none;
@@ -458,6 +461,12 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
         <span class="ctl-lab" id="typeLab">Type</span>
         <div class="chips" id="typeChips" role="group" aria-labelledby="typeLab"></div>
       </div>
+      <div class="ctl-row">
+        <span class="ctl-lab" id="evLab">EV</span>
+        <div class="chips" role="group" aria-labelledby="evLab">
+          <button type="button" class="chip" id="evChip" aria-pressed="false">&#9889; Chargers only</button>
+        </div>
+      </div>
     </div>
     <div id="sheetBody">
       <div id="notice" hidden role="status" aria-live="polite"></div>
@@ -474,7 +483,8 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
         none that can be trusted, and those show no price rather than a guess, so they are never
         called cheapest. Most other private carparks are not included, and an empty list here does
         not mean there is no parking nearby. Hours with no published rate are shown as such rather
-        than guessed at.
+        than guessed at. EV chargers, their prices and whether they are free come from LTA
+        DataMall, refreshed every half hour.
       </div>
     </div>
   </div>
@@ -506,6 +516,9 @@ const state = {
   sort: "near",
   stay: { start: null, minutes: 120 },   // start null means "now"
   vehicle: "car",
+  // EV chargers: id -> charger groups, the charger sites that are not
+  // carparks, and whether the list is showing only places with chargers.
+  ev: null, evSites: [], evAt: null, evOn: false,
   map: null, markers: new Map(), meMarker: null, lastRows: [],
   // Opens showing the verdict, not just the controls that produce it. The map
   // still gets 44% of a phone screen, and the sheet drags freely from there.
@@ -571,6 +584,8 @@ const LOTS_UNKNOWN = {
   // fallback for a mall LTA skipped or a collector that has stopped.
   [LTA]: "No recent lot count for this mall",
   [PRIVATE]: "This carpark publishes no live lot count",
+  // e: an EV charger site from LTA that is in no carpark feed.
+  e: "A charging site; no carpark lot count",
 };
 const lotsUnknownText = (c) => LOTS_UNKNOWN[sourceOf(c)] || "No live data for this carpark";
 
@@ -602,6 +617,9 @@ const NOT_PRICED = {
 };
 
 function feeForCarpark(c, start, minutes) {
+  // A charger site that is not a carpark we list: LTA gives the charging
+  // price and nothing about parking, so there is nothing to quote.
+  if (sourceOf(c) === "e") return { ...NOT_PRICED, unavailable: "ev-site", minutes };
   const rec = forEngine(c);
   // LTA DataMall publishes lot counts and nothing else - no rate, no cap, no
   // free-parking window. There is no engine that can price these, and falling
@@ -771,8 +789,97 @@ async function loadMallLive() {
   return map;
 }
 
+// EV chargers. Same route as the mall counts and for the same reason: LTA's
+// charger feed needs the key, so the collector writes data/live-ev.json and
+// the page reads it here. Unlike a lot count, WHERE the chargers are and what
+// they cost stays true when the file is old, so an old file still shows them;
+// only the free/in-use counts are withheld (see evFresh).
+const EV_URL = "https://raw.githubusercontent.com/KCJJ0203/carpark-sg/main/data/live-ev.json";
+const EV_MAX_AGE = 90 * 60000;
+const EV = "e";
+
+async function loadEv() {
+  const r = await fetch(EV_URL, { cache: "no-store" });
+  if (!r.ok) throw new Error("chargers answered " + r.status);
+  const j = await r.json();
+  const byId = new Map();
+  const sites = [];
+  for (const [id, name, y, x, groups] of j.sites || []) {
+    // A charger site in no carpark we list (a petrol station, an office, a
+    // condo open to the public) becomes a site of its own, shown only when
+    // EV chargers are asked for. It has no price and no lot count.
+    const key = id || "ev:" + y.toFixed(5) + "," + x.toFixed(5);
+    if (!id && !byId.has(key)) sites.push({ i: key, a: name, y, x, t: "?", o: EV, g: null, f: 0, s: 0 });
+    byId.set(key, (byId.get(key) || []).concat(groups));
+  }
+  state.ev = byId;
+  state.evSites = sites;
+  state.evAt = new Date(j.at);
+}
+const evFresh = () => state.evAt && !isNaN(state.evAt) && Date.now() - state.evAt.getTime() < EV_MAX_AGE;
+
+// [plug, kW, dc, price, unit, total, free, out, operator, levels] per group.
+function evSummary(c) {
+  const gs = state.ev && state.ev.get(c.i);
+  if (!gs || !gs.length) return null;
+  let total = 0, free = 0, out = 0, kw = 0, dc = false;
+  for (const g of gs) {
+    total += g[5]; free += g[6]; out += g[7];
+    if (g[1] > kw) kw = g[1];
+    if (g[2]) dc = true;
+  }
+  return { total, free, out, kw, dc, groups: gs };
+}
+
+function evCountText(s) {
+  if (!evFresh()) return s.total + (s.total === 1 ? " charger" : " chargers");
+  if (s.out === s.total) return (s.total === 1 ? "Charger" : "All " + s.total + " chargers") + " out of service";
+  if (!s.free) return (s.total === 1 ? "Charger" : "All " + s.total + " chargers") + " in use";
+  return s.free + " of " + s.total + " chargers free";
+}
+
+function evTagHtml(c) {
+  const s = evSummary(c);
+  if (!s) return "";
+  const speed = s.kw ? " &middot; " + (s.dc ? "DC " : "") + "up to " + s.kw + " kW" : "";
+  const cls = evFresh() && s.free ? "ev" : "ev idle";
+  return '<span class="tag ' + cls + '">⚡ ' + evCountText(s) + speed + "</span>";
+}
+
+const evPrice = (g) => g[4] === "free" ? "Free"
+  : g[3] === null ? "Price not given"
+  : "$" + g[3].toFixed(2) + (g[4] === "h" ? "/h" : "/kWh");
+
+function evPanelHtml(c) {
+  const s = evSummary(c);
+  if (!s) return "";
+  const age = state.evAt ? Math.round((Date.now() - state.evAt.getTime()) / 60000) : null;
+  const when = !evFresh()
+    ? "Charger status is out of date, so only what is here is shown, not what is free."
+    : "Updated " + (age < 1 ? "just now" : age + " min ago") + ".";
+  const rows = s.groups.map((g) => {
+    const counts = evFresh()
+      ? (g[6] ? g[6] + " free" : g[7] === g[5] ? "Out of service" : "In use") : g[5] + "";
+    return '<div class="brow"><span>' + (g[0] || "Charger") + " &middot; " + (g[2] ? "DC" : "AC") +
+      (g[1] ? " " + g[1] + " kW" : "") + " &times; " + g[5] +
+      '<br><small class="muted">' + [g[8], g[9]].filter(Boolean).join(" &middot; ") + "</small></span>" +
+      "<span>" + counts + '<br><small class="muted">' + evPrice(g) + "</small></span></div>";
+  }).join("");
+  return '<div class="fee-box ev-box"><div class="fee-h">⚡ EV charging</div>' +
+    '<div class="meta"><span><strong>' + evCountText(s) + "</strong>. " + when + "</span></div>" +
+    '<div class="breakdown">' + rows + "</div>" +
+    '<div class="note" style="margin:0">Charger status and prices come from LTA DataMall, ' +
+    "and the prices include GST. You pay the operator for charging; the carpark's parking " +
+    "charge is separate.</div></div>";
+}
+
+const findSite = (id) => state.carparks.find((x) => x.i === id) ||
+  (state.evSites || []).find((x) => x.i === id);
+
 async function loadLive() {
-  const [hdbLive, mallLive] = await Promise.allSettled([loadHdbLive(), loadMallLive()]);
+  // Chargers load alongside the counts but are not counts: they never decide
+  // whether live data "arrived".
+  const [hdbLive, mallLive] = await Promise.allSettled([loadHdbLive(), loadMallLive(), loadEv()]);
   const map = new Map();
   for (const r of [hdbLive, mallLive]) if (r.status === "fulfilled") for (const [k, v] of r.value) map.set(k, v);
   if (!map.size) throw new Error("no live counts arrived");
@@ -826,11 +933,19 @@ function toggleSaved(id) {
 // calculations - small next to the 24 x 40 the verdict already runs.
 const FREE_POOL = 150;
 
+// What the list chooses from. With EV chargers on, that is the carparks that
+// have chargers plus the charger sites that are not carparks at all.
+function candidates() {
+  const base = state.evOn
+    ? state.carparks.filter((c) => state.ev && state.ev.has(c.i)).concat(state.evSites || [])
+    : state.carparks;
+  return state.types.size ? base.filter((c) => state.types.has(c.t)) : base;
+}
+
 function shortlist(limit) {
   if (state.sort === "free") return freeShortlist(limit);
   const c0 = state.centre;
-  return state.carparks
-    .filter((c) => !state.types.size || state.types.has(c.t))
+  return candidates()
     .map((c) => ({ c, d: haversine(c0.lat, c0.lng, c.y, c.x) }))
     // Take the nearest N FIRST, and only then apply the chosen order. Sorting
     // the whole island by price would answer "where is the cheapest carpark in
@@ -844,8 +959,7 @@ function shortlist(limit) {
 
 function freeShortlist(limit) {
   const c0 = state.centre;
-  const pool = state.carparks
-    .filter((c) => !state.types.size || state.types.has(c.t))
+  const pool = candidates()
     .map((c) => ({ c, d: haversine(c0.lat, c0.lng, c.y, c.x) }))
     .sort((a, b) => a.d - b.d)
     .slice(0, FREE_POOL)
@@ -945,6 +1059,7 @@ function feeText(fee) {
   // publish prices has none for these particular hours. This one means nobody
   // publishes a price for this carpark at all.
   if (fee.unavailable === "source-has-no-rates") return { text: "No published price", cls: "none" };
+  if (fee.unavailable === "ev-site") return { text: "Parking price not listed", cls: "none" };
   if (fee.unavailable === "rate-not-published") return { text: "Price not published", cls: "none" };
   if (fee.unavailable === "no-rates") return { text: "No rate published", cls: "none" };
   if (fee.unavailable) return { text: "Closed then", cls: "none" };
@@ -1010,8 +1125,12 @@ function pinHtml(row) {
   const label = row.fee.unavailable === "season-only" ? "Season"
     : row.fee.unavailable === "vehicle-not-priced" ? "\u2013"
     : row.fee.unavailable === "source-has-no-rates" ? "\u2013"
+    : row.fee.unavailable === "ev-site" ? "EV"
     : row.fee.unavailable ? "Shut" : f.text;
-  const lots = row.live && row.live.available !== null ? row.live.available : row.live ? "?" : "–";
+  let lots = row.live && row.live.available !== null ? row.live.available : row.live ? "?" : "–";
+  // Showing chargers, the number under the price is free chargers, not lots.
+  const evs = state.evOn && evSummary(row.c);
+  if (evs) lots = "⚡" + (evFresh() ? evs.free : evs.total);
   return '<div class="pin ' + pinClass(row) + (row.c.i === state.selected ? " chosen" : "") + '">' +
     '<div class="lab"><span>' + label + "</span><em>" + lots + "</em></div>" +
     '<div class="stem"></div></div>';
@@ -1103,6 +1222,7 @@ function cardHtml(row) {
       ? '<span class="tag cheapest-tag">Cheapest nearby</span>' : "",
     delta ? '<span class="tag">+' + money(delta) + " vs cheapest nearby</span>" : "",
     freeTagHtml(c, fee),
+    evTagHtml(c),
     fee.peak ? '<span class="tag dear">Peak-hour rates</span>' : "",
     fee.central && !fee.peak ? '<span class="tag dear">Central Area</span>' : "",
     fee.capApplied === "night" ? '<span class="tag">Night cap</span>' : "",
@@ -1152,7 +1272,7 @@ function render() {
   state.priceSpread = new Set(priced).size > 1;
   drawPins(rows);
 
-  const byId = new Map(state.carparks.map((c) => [c.i, c]));
+  const byId = new Map(state.carparks.concat(state.evSites || []).map((c) => [c.i, c]));
   const saved = loadSaved().map((id) => byId.get(id)).filter(Boolean).map((c) => ({
     c, d: haversine(state.centre.lat, state.centre.lng, c.y, c.x),
     fee: priceOf(c), live: state.live && state.live.get(c.i),
@@ -1165,6 +1285,8 @@ function render() {
   $("#list").innerHTML = rows.length
     ? rows.slice(0, 15).map(cardHtml).join("")
     : state.sort === "free" ? freeMissHtml()
+    : state.evOn && !state.ev
+    ? '<div class="note">EV charger data could not be loaded just now. Reload to try again.</div>'
     : '<div class="note">No carparks of that type near here. Try clearing the filters or moving the map.</div>';
   $("#scope").hidden = false;
   wireRows($("#sheetBody"));
@@ -1179,7 +1301,8 @@ function render() {
   // from you, "310 m" would otherwise quietly start meaning something else.
   const nearMe = state.me &&
     haversine(state.me.lat, state.me.lng, state.centre.lat, state.centre.lng) < 60;
-  const lead = { near: "Nearest to", cheap: "Cheapest near", lots: "Emptiest near", free: "Free for this stay near" }[state.sort] || "Near";
+  let lead = { near: "Nearest to", cheap: "Cheapest near", lots: "Emptiest near", free: "Free for this stay near" }[state.sort] || "Near";
+  if (state.evOn) lead = "With EV chargers, " + lead.toLowerCase();
   $("#where").innerHTML = lead + " <strong>" + (nearMe ? "you" : "the middle of the map") + "</strong>" +
     (state.fetchedAt ? " &middot; live as of " +
       state.fetchedAt.toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit" }) : "");
@@ -1552,7 +1675,7 @@ function closeDetail() {
 }
 
 function renderDetail() {
-  const c = state.carparks.find((x) => x.i === state.selected);
+  const c = findSite(state.selected);
   if (!c) { closeDetail(); return; }
   const now = new Date();
   const dist = haversine(state.centre.lat, state.centre.lng, c.y, c.x);
@@ -1601,7 +1724,11 @@ function renderDetail() {
   }
 
   let feeBody;
-  if (fee.unavailable === "season-only") {
+  if (fee.unavailable === "ev-site") {
+    feeBody = '<div class="fee-total"><span class="fee-n none">Parking price not listed</span></div>' +
+      '<div class="note" style="margin:0">LTA lists the chargers here but this place is in no ' +
+      "carpark feed this site reads, so there is no parking rate to quote. Check the signboard.</div>";
+  } else if (fee.unavailable === "season-only") {
     feeBody = '<div class="fee-total"><span class="fee-n none">Season parking only</span></div>' +
       '<div class="note" style="margin:0">HDB does not offer short-term parking here, so there is no ' +
       "hourly rate to quote.</div>";
@@ -1697,7 +1824,10 @@ function renderDetail() {
         (c.k ? '<span class="dot"></span><span>' + c.k + " lots in total</span>" : "") + "</div>" +
       lots + usualLine +
       (freeTagHtml(c, fee) ? '<div class="meta">' + freeTagHtml(c, fee) + "</div>" : "") +
+      // Charging first when that is what was asked for; otherwise after the price.
+      (state.evOn ? evPanelHtml(c) : "") +
       '<div class="fee-box"><div class="fee-h">Cost of this stay</div>' + feeBody + "</div>" +
+      (state.evOn ? "" : evPanelHtml(c)) +
       dayChartHtml(c) +
       '<a class="maps" href="https://www.google.com/maps/dir/?api=1&destination=' + c.y + "," + c.x +
         '" target="_blank" rel="noopener"><button type="button">Directions</button></a>' +
@@ -1718,6 +1848,9 @@ function renderDetail() {
         ? '<div class="note">Lot counts come from LTA DataMall. It publishes no prices at all, ' +
           "and this mall's own rates have not been read into this site yet, so it shows none " +
           "rather than guessing one.</div>"
+        : sourceOf(c) === EV
+        ? '<div class="note">This is an EV charging site from LTA DataMall, not a carpark in any ' +
+          "feed this site reads, so it has no parking price or lot count here.</div>"
         : sourceOf(c) === PRIVATE
         ? '<div class="note">This carpark is in no public data feed. Its rates are not published ' +
           "anywhere this site can read, so it shows none rather than guessing one.</div>"
@@ -1988,6 +2121,11 @@ function initControls() {
     '" aria-pressed="' + (s.key === state.sort) + '">' + s.label + "</button>").join("");
   types.innerHTML = FILTERS.map((f) => '<button type="button" class="chip" data-type="' + f.key +
     '" aria-pressed="false">' + f.label + "</button>").join("");
+  $("#evChip").addEventListener("click", () => {
+    state.evOn = !state.evOn;
+    $("#evChip").setAttribute("aria-pressed", String(state.evOn));
+    closeDetail();
+  });
 
   seg.querySelectorAll("[data-sort]").forEach((b) => {
     b.addEventListener("click", () => {
