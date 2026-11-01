@@ -239,6 +239,9 @@ function feeFor(tariff, start, minutes, isHoliday) {
     if (!r) return { ...out, unavailable: "rate-not-published" };
     if (!r.band) return { ...out, unavailable: "rate-not-published" };
     if (r.band.closed) return { ...out, unavailable: "closed" };
+    // Hours the carpark's own rates do not cover. Not closed, not free: we do
+    // not know, so a stay that touches them is not priced at all.
+    if (r.band.unknown) return { ...out, unavailable: "rate-not-published" };
     if (cur && cur.band === r.band && cur.owner === r.owner) { cur.minutes++; continue; }
     cur = { band: r.band, owner: r.owner, minutes: 1, startMinute: tm, day };
     runs.push(cur);
@@ -308,6 +311,17 @@ function feeFor(tariff, start, minutes, isHoliday) {
     capApplied = "entry";
   }
 
+  // A carpark that posts its rates before GST ("subject to prevailing GST").
+  // What the driver pays includes it, so it is added once, to the total; how
+  // the machine rounds each charge is not posted, so the result can differ by
+  // a cent or two, and the page says so.
+  if (tariff.gst && charged > 0) {
+    const tax = charged * tariff.gst;
+    lines.push({ rate: null, minutes: 0, from: null, to: null, amount: cents(tax),
+      label: "GST at " + Math.round(tariff.gst * 100) + "%, added to the posted rates" });
+    charged += tax;
+  }
+
   return {
     ...out,
     total: cents(charged),
@@ -333,7 +347,7 @@ function validate(id, t) {
     if (!Array.isArray(v) || !v.length) bad(k + " has no bands");
     for (const b of v) {
       if (parseClock(b.from) === null || parseClock(b.to) === null) bad(k + " band has a bad time");
-      const kinds = ["first", "then", "entry", "free", "closed"].filter((x) => b[x] !== undefined);
+      const kinds = ["first", "then", "entry", "free", "closed", "unknown"].filter((x) => b[x] !== undefined);
       if (!kinds.length) bad(k + " " + b.from + " band has no rule");
       if (b.entry !== undefined && (b.first || b.then)) bad(k + " " + b.from + " mixes entry and per-unit");
       if (b.until !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(b.until)) bad(k + " " + b.from + " until is not a date");
@@ -346,6 +360,7 @@ function validate(id, t) {
       if (!v.filter((b) => !b.until).some((b) => covers(b, mod))) bad(k + " leaves " + clock(mod) + " uncovered");
     }
   }
+  if (t.gst !== undefined && !(t.gst > 0 && t.gst < 0.2)) bad("gst must be a fraction such as 0.09");
   for (const sc of t.surcharges || []) {
     if (parseClock(sc.from) === null || parseClock(sc.to) === null) bad("surcharge has a bad time");
     if (!(sc.price > 0)) bad("surcharge needs a price");

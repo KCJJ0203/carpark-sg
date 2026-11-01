@@ -7,6 +7,8 @@
 // figure in here no longer appears there. Never edit a price without reading
 // the page; never add a mall from memory.
 //
+// gst: 0.09        = the carpark posts its rates BEFORE GST ("subject to
+//                     prevailing GST"); the engine adds it to the total.
 // secondary: true  = no rate on the operator's own site; read from LTA
 //                     OneMotoring's guide, which says it may exclude GST.
 // note              = a caveat the page shows beside the price.
@@ -21,10 +23,17 @@ const block = (from, to, firstMin, firstPrice, unit, unitPrice) =>
 const per = (from, to, unit, price) => ({ from, to, then: { min: unit, price } });
 const entry = (from, to, price) => ({ from, to, entry: price });
 const free = (from, to, until) => (until ? { from, to, free: true, until } : { from, to, free: true });
+// Hours the carpark's posted rates do not cover. A stay touching them is not
+// priced: "no rate" is true, and any figure would be a guess.
+const unknown = (from, to) => ({ from, to, unknown: true });
 
 const CAPITALAND = (slug) => "https://www.capitaland.com/sg/malls/" + slug + "/en/concierge.html";
 const ONEMOTORING_ORCHARD =
   "https://onemotoring.lta.gov.sg/content/onemotoring/home/owning/ongoing-car-costs/parking/parking_rates.1.html";
+const ONEMOTORING_MARINA =
+  "https://onemotoring.lta.gov.sg/content/onemotoring/home/owning/ongoing-car-costs/parking/parking_rates.4.html";
+// Read on 2 Nov 2026: the seven at the end. LTA's guide was "Last updated 16 April 2026".
+const D2 = "2026-11-02";
 
 // Plaza Singapura's table, which The Atrium@Orchard's basement also follows.
 const PLAZA_SING_DAYS = {
@@ -331,6 +340,95 @@ const TARIFFS = {
       sun: "sat", ph: "sat",
     },
     checks: ["orchardgateway", "2.40", "1.53", "2.51", "1.64"],
+  },
+  // ---- added 2 Nov 2026 ----------------------------------------------------
+  "lta:13": {
+    name: "Ngee Ann City", source: "https://www.ngeeanncity.com.sg/carpark/body_carpark.html", read: D2,
+    grace: null, gst: 0.09,
+    note: "Ngee Ann City posts its rates before GST, so 9% GST is added here; the machine may round a cent or two differently",
+    days: {
+      wd: [per("00:00", "12:00", 30, 1.20), per("12:00", "14:00", 30, 1.70), per("14:00", "17:00", 30, 1.20),
+        per("17:00", "19:00", 30, 1.70), entry("19:00", "24:00", 4.00)],
+      sat: [block("00:00", "12:00", 60, 2.40, 30, 1.50), block("12:00", "14:00", 60, 3.40, 30, 2.00),
+        block("14:00", "17:00", 60, 2.40, 30, 1.50), block("17:00", "19:00", 60, 3.40, 30, 2.00),
+        entry("19:00", "24:00", 4.00)],
+      sun: "sat", ph: "sat",
+    },
+    checks: ["1.20", "1.70", "4.00", "2.40", "1.50", "3.40", "2.00", "prevailing GST"],
+  },
+  "lta:20": {
+    name: "Far East Plaza", source: "https://www.fareastplaza.com.sg/about-us", read: D2, grace: 10, gst: 0.09,
+    // The mall's page is drawn by script, which the watchdog cannot read; LTA's
+    // guide carries the same figures.
+    checkSource: ONEMOTORING_ORCHARD,
+    note: "Far East Plaza posts its rates before GST, so 9% GST is added here. It gives no rate between midnight and 8am, so stays then show none",
+    days: {
+      wd: [unknown("00:00", "08:00"), block("08:00", "17:00", 60, 2.00, 30, 1.50), entry("17:00", "24:00", 3.50)],
+      sat: "wd", sun: "wd", ph: "wd",
+    },
+    checks: ["Far East Plaza", "$2.00 for 1st hr; $1.50", "$3.50 per entry"],
+  },
+  "lta:5": {
+    name: "Millenia Singapore", source: "https://www.milleniawalk.com/getting-here/", read: D2, grace: 10,
+    checkSource: ONEMOTORING_MARINA,
+    note: "Basement rates, shared by Millenia Walk and its hotels. After the first 2 hours at weekends it is $1.40 an hour (Millenia Walk's own page; LTA's guide says per half hour). Nights are charged by the hour from 12am (Mon-Thu) or 2am (other nights). The $3.90 rebate with an $80 spend is not taken off",
+    days: {
+      // Mon-Thu. The 12am-6.59am overnight hours are the night OF Mon-Thu,
+      // the only reading under which the page's bands fit together: Sunday's
+      // band runs "7AM TO 1.59AM (next day)" into Monday.
+      wd: [block("00:00", "07:00", 60, 3.90, 30, 1.95), block("07:00", "18:00", 60, 3.90, 30, 1.95),
+        entry("18:00", "24:00", 3.00)],
+      // Friday's $3 evening entry runs on to 2am, when Friday's overnight
+      // starts. Listed FIRST: an earlier band covering 12-2am would otherwise
+      // shadow it when Saturday's early hours look back at Friday.
+      fri: [entry("18:00", "02:00", 3.00), block("00:00", "07:00", 60, 3.90, 30, 1.95),
+        block("07:00", "18:00", 60, 3.90, 30, 1.95)],
+      sat: [block("02:00", "07:00", 60, 3.90, 30, 1.95),
+        { from: "07:00", to: "02:00", first: { min: 120, price: 2.80 }, then: { min: 60, price: 1.40 } }],
+      sun: "sat", ph: "sat",
+    },
+    checks: ["Millenia", "$3.90 for 1st hr; $1.95", "$3 per entry", "$2.80 for 1st 2hrs"],
+  },
+  "lta:15": {
+    name: "Wheelock Place", source: ONEMOTORING_ORCHARD, read: D2, grace: null, secondary: true,
+    note: "Wheelock Place's own website is gone; these are LTA OneMotoring's figures, which may not include GST",
+    days: {
+      wd: [block("06:00", "17:30", 60, 3.27, 30, 1.64), entry("17:30", "06:00", 4.91)],
+      sat: "wd", sun: "wd", ph: "wd",
+    },
+    checks: ["Wheelock Place", "$3.27 for 1st hr; $1.64", "$4.91 per entry"],
+  },
+  "lta:18": {
+    name: "Tang Plaza", source: ONEMOTORING_ORCHARD, read: D2, grace: null, secondary: true,
+    note: "TANGS posts no rates of its own; these are LTA OneMotoring's, which may not include GST. The guide gives no rate between midnight and 6am, so stays then show none",
+    days: {
+      wd: [unknown("00:00", "06:00"),
+        { from: "06:00", to: "18:00", first: { min: 60, price: 3.00 }, then: { min: 1, price: 0.05 }, cap: 18.00 },
+        entry("18:00", "24:00", 6.00)],
+      sat: "wd", sun: "wd", ph: "wd",
+    },
+    checks: ["Tang Plaza", "$3.00 for 1st hr; $0.05/min", "$18.00", "$6 per entry"],
+  },
+  "lta:22": {
+    name: "Concorde Hotel", source: ONEMOTORING_ORCHARD, read: D2, grace: null, secondary: true,
+    note: "The hotel's own website is down; these are LTA OneMotoring's figures, which may not include GST. The guide gives no rate before 7am except on Sundays and public holidays",
+    days: {
+      wd: [unknown("00:00", "07:00"), block("07:00", "18:00", 60, 2.14, 30, 1.39), entry("18:00", "24:00", 3.75)],
+      sat: "wd",
+      sun: [entry("00:00", "24:00", 3.75)], ph: "sun",
+    },
+    checks: ["Concorde Hotel", "$2.14 for 1st hr; $1.39", "$3.75 per entry"],
+  },
+  "manual:kbt": {
+    name: "Keppel Bay Tower", source: ONEMOTORING_MARINA, read: D2, grace: null, secondary: true,
+    // An older LTA list (2018) that other sites still copy has different
+    // figures; this is the current guide.
+    note: "Keppel posts no rates of its own; these are LTA OneMotoring's, which may not include GST",
+    days: {
+      wd: [per("07:00", "19:00", 30, 1.03), entry("19:00", "01:00", 3.10), per("01:00", "07:00", 60, 3.10)],
+      sat: "wd", sun: "wd", ph: "wd",
+    },
+    checks: ["Keppel Bay Tower", "$1.03 per", "$3.10 per entry", "$3.10 per hr"],
   },
 };
 

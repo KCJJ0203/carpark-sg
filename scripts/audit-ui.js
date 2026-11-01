@@ -1114,10 +1114,10 @@ async function auditMalls(browser, errors) {
   // The bug this whole refactor exists to prevent: before the record carried
   // its source, an LTA mall had no rate table, and "no rate table" meant "price
   // it with HDB's schedule". That would put a real-looking price on ION.
-  // Ngee Ann City: a mall whose own posted rates are NOT in src/mall-tariffs.js
-  // (its page quotes before-GST prices from 2003), so it must stay unpriced.
+  // Orchard Point: a mall with no current posted rates anywhere (not on LTA's
+  // guide since 2024, no website of its own), so it must stay unpriced.
   const priced = await page.evaluate(() => {
-    const c = state.carparks.find((x) => x.i === "lta:13");
+    const c = state.carparks.find((x) => x.i === "lta:7");
     const at = new Date("2026-08-19T14:00:00+08:00");
     const f = feeForCarpark(c, at, 120);
     const hdb = state.carparks.find((x) => x.o === "h");
@@ -1157,14 +1157,19 @@ async function auditMalls(browser, errors) {
   // default nearest-first order: sorting by price pushes the unpriced past the
   // end of the rendered list, which is the correct behaviour and would leave
   // this check reading an empty DOM.
+  await page.evaluate(() => {
+    const c = state.carparks.find((x) => x.i === "lta:7");
+    goTo(c.y, c.x, 17);
+  });
+  await page.waitForTimeout(900);
   const said = await page.evaluate(() => {
-    const el = [...document.querySelectorAll(".row[data-id]")].find((e) => e.dataset.id === "lta:13");
+    const el = [...document.querySelectorAll(".row[data-id]")].find((e) => e.dataset.id === "lta:7");
     return el ? el.querySelector(".price").textContent.trim() : null;
   });
   check("the card says there is no published price", said === "No published price", said);
 
   await page.evaluate(() => {
-    const el = [...document.querySelectorAll(".row[data-id]")].find((e) => e.dataset.id === "lta:13");
+    const el = [...document.querySelectorAll(".row[data-id]")].find((e) => e.dataset.id === "lta:7");
     el.click();
   });
   await page.waitForTimeout(600);
@@ -1200,10 +1205,19 @@ async function auditMalls(browser, errors) {
     const c = state.carparks.find((x) => x.i === "manual:scc");
     const k = state.carparks.find((x) => x.i === "manual:kbt");
     return { scc: c && feeForCarpark(c, new Date("2026-11-03T14:00:00+08:00"), 120).total,
-             kbt: k && feeForCarpark(k, new Date("2026-11-03T14:00:00+08:00"), 120).unavailable };
+             kbt: k && feeForCarpark(k, new Date("2026-11-03T14:00:00+08:00"), 120).total };
   });
   check("the cruise centre is on the map and priced ($2.80 an hour)", scc.scc === 5.6, JSON.stringify(scc));
-  check("Keppel Bay Tower is on the map, unpriced", scc.kbt === "source-has-no-rates", JSON.stringify(scc));
+  // LTA guide: $1.03 per half hour from 7am, so 2 hours is 4 x $1.03.
+  check("Keppel Bay Tower is on the map, priced from LTA guide", scc.kbt === 4.12, JSON.stringify(scc));
+  // Hours a carpark posts no rate for: no price, and never called "Shut".
+  const gap = await page.evaluate(() => {
+    const c = state.carparks.find((x) => x.i === "lta:18");   // Tang Plaza, nothing posted 12-6am
+    const fee = feeForCarpark(c, new Date("2026-11-03T03:00:00+08:00"), 60);
+    return { why: fee.unavailable, total: fee.total, pin: pinHtml({ c, fee, live: null, d: 0 }) };
+  });
+  check("hours with no posted rate are not priced", gap.why === "rate-not-published" && gap.total === null, JSON.stringify(gap.why));
+  check("and the pin does not call the carpark shut", !/Shut/.test(gap.pin), gap.pin.replace(/<[^>]+>/g, " "));
 
   // Sorting by price must not treat "no price" as free. Done last, because it
   // reorders the list out from under everything above.

@@ -1128,6 +1128,8 @@ function pinHtml(row) {
     : row.fee.unavailable === "vehicle-not-priced" ? "\u2013"
     : row.fee.unavailable === "source-has-no-rates" ? "\u2013"
     : row.fee.unavailable === "ev-site" ? "EV"
+    // No rate for those hours is not the same as closed: say nothing.
+    : row.fee.unavailable === "rate-not-published" || row.fee.unavailable === "no-rates" ? "–"
     : row.fee.unavailable ? "Shut" : f.text;
   let lots = row.live && row.live.available !== null ? row.live.available : row.live ? "?" : "–";
   // Showing chargers, the number under the price is free chargers, not lots.
@@ -1775,6 +1777,11 @@ function renderDetail() {
           "free-parking hours - and this mall's own posted rates have not been read in yet.") +
       " Rather than borrow HDB's or URA's prices, which do not apply here, this site quotes " +
       "nothing. The rate is on the signboard at the entrance.</div>";
+  } else if (fee.unavailable === "rate-not-published" && hasMallRates(c)) {
+    feeBody = '<div class="fee-total"><span class="fee-n none">Price not published</span></div>' +
+      '<div class="note" style="margin:0">The rates this carpark posts say nothing about part of ' +
+      "that stay, so there is nothing to quote rather than a guess. Try another arrival time, or " +
+      "check the signboard.</div>";
   } else if (fee.unavailable === "rate-not-published") {
     feeBody = '<div class="fee-total"><span class="fee-n none">Price not published</span></div>' +
       '<div class="note" style="margin:0">URA publishes no rate for part of that stay here. It may ' +

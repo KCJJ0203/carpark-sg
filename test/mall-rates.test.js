@@ -131,3 +131,32 @@ test("Sentosa: per 15 minutes by day, capped at $10 a day", () => {
   // Sat 8am-5pm then evening entry: 36 x $0.55 = $19.80 + $4.00, capped at $10
   assert.strictEqual(fee("lta:17", "2026-11-07T08:00", 600).total, 10);
 });
+
+test("Ngee Ann City: posted before GST, so 9% is added to the total", () => {
+  // Tue 3pm, 1h: 2 x $1.20 = $2.40, plus 9% = $2.616
+  assert.strictEqual(fee("lta:13", "2026-11-17T15:00", 60).total, 2.62);
+  // Sat 3pm, 2h: $2.40 first hour + 2 x $1.50 = $5.40, plus 9% = $5.886
+  assert.strictEqual(fee("lta:13", "2026-11-21T15:00", 120).total, 5.89);
+});
+
+test("hours a carpark gives no rate for are never priced", () => {
+  // Far East Plaza says nothing about midnight to 8am.
+  assert.strictEqual(fee("lta:20", "2026-11-17T07:00", 120).unavailable, "rate-not-published");
+  assert.strictEqual(fee("lta:20", "2026-11-17T07:00", 120).total, null);
+  // From 8am it is priced: $2.00 + 2 x $1.50 = $5.00, plus 9%
+  assert.strictEqual(fee("lta:20", "2026-11-17T10:00", 120).total, 5.45);
+});
+
+test("Millenia: Friday's evening entry runs to 2am, Sunday's band into Monday", () => {
+  // Arriving 12.30am on a Saturday is still Friday night: $3.00 per entry
+  assert.strictEqual(fee("lta:5", "2026-11-21T00:30", 30).total, 3);
+  // Arriving 1am on a Monday is still Sunday: $2.80 for the first 2 hours
+  assert.strictEqual(fee("lta:5", "2026-11-23T01:00", 60).total, 2.8);
+  // A Wednesday 3am is Tuesday night's overnight rate: $3.90 first hour
+  assert.strictEqual(fee("lta:5", "2026-11-18T03:00", 60).total, 3.9);
+});
+
+test("Tang Plaza: 5 cents a minute after the first hour, capped at $18", () => {
+  // 6am-4pm: $3.00 + 540 x $0.05 = $30.00, capped
+  assert.strictEqual(fee("lta:18", "2026-11-17T06:00", 600).total, 18);
+});
