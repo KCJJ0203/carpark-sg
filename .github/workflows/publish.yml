@@ -46,6 +46,9 @@ jobs:
         run: |
           node scripts/collect.js --carparks
           node scripts/build-web.js
+          # The mall pages and sitemap are built from the same rates as the map,
+          # so they are rebuilt with it and can never disagree with it.
+          node scripts/build-pages.js
 
       - name: Rebuild usage patterns from collected history
         run: node scripts/build-patterns.js

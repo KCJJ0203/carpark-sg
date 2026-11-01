@@ -27,7 +27,8 @@
 // (rates.js grew a third engine), and Keppel Bay Tower joined the map.
 // v15: "park free" - a Free view, free-till / free-from tags, Sunday and
 // public-holiday chips.
-// v16: EV chargers (tags, an EV filter, a charger box in the panel).
+// v16: EV chargers (tags, an EV filter, a charger box in the panel), and
+// "#c=<id>" links that open a carpark, used by the new mall pages.
 const VERSION = "v16";
 const TILES = "tiles-v1";
 const SHELL = [

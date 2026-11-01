@@ -7,6 +7,7 @@
 <meta name="description" content="What parking costs near any place in Singapore, hour by hour.
 Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rates, live lot counts.">
 <title>Carpark SG — when parking near you is cheapest</title>
+<link rel="canonical" href="https://kcjj0203.github.io/carpark-sg/">
 <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="lib/leaflet.css">
 <style>
@@ -485,6 +486,7 @@ Find the cheapest time to arrive, not just the nearest carpark. HDB and URA rate
         not mean there is no parking nearby. Hours with no published rate are shown as such rather
         than guessed at. EV chargers, their prices and whether they are free come from LTA
         DataMall, refreshed every half hour.
+        <a href="malls/">Mall parking rates, compared</a>.
       </div>
     </div>
   </div>
@@ -1658,8 +1660,33 @@ function dayChartHtml(c) {
 
 /* ---- one carpark --------------------------------------------------- */
 
+// "#c=lta:16" opens that carpark: the mall pages link here, and an open panel
+// keeps its address so it can be shared. replaceState, not a new history
+// entry, so Back still leaves the site rather than stepping through panels.
+function setHash(id) {
+  try {
+    history.replaceState(null, "", id ? "#c=" + id : location.pathname + location.search);
+  } catch (e) {}
+}
+function openFromHash() {
+  let h = location.hash;
+  try { h = decodeURIComponent(h); } catch (e) {}
+  const m = h.match(/^#c=([\w:.,-]+)$/);
+  const c = m && findSite(m[1]);
+  if (!c) return false;
+  // A charger site is only listed with the EV filter on.
+  if (sourceOf(c) === "e" && !state.evOn) {
+    state.evOn = true;
+    $("#evChip").setAttribute("aria-pressed", "true");
+  }
+  goTo(c.y, c.x, 17);
+  openDetail(c.i);
+  return true;
+}
+
 function openDetail(id) {
   state.selected = id;
+  setHash(id);
   renderDetail();
   drawPins(state.lastRows);
   $("#sheetBody").scrollTop = 0;
@@ -1670,6 +1697,7 @@ function openDetail(id) {
 }
 
 function closeDetail() {
+  if (state.selected) setHash(null);
   state.selected = null;
   render();
 }
@@ -2256,6 +2284,7 @@ function fail(message) {
 // map, so the place is nudged up into the visible strip - otherwise the thing
 // you just searched for lands behind the list.
 function goTo(lat, lng, zoom) {
+  if (state.selected) setHash(null);
   state.selected = null;
   closeSuggestions();
   if (!$("#notice").classList.contains("busy")) clearNotice();
@@ -2488,6 +2517,8 @@ function initSearch() {
   // opening hours are all useful with no signal at all.
   try { await loadLive(); } catch (e) {}
   render();
+  openFromHash();
+  window.addEventListener("hashchange", openFromHash);
 })();
 
 // Offline support. The manifest already claims this is an installable app, so

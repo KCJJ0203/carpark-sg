@@ -30,7 +30,8 @@ function check(name, ok, detail) {
 
 const server = http.createServer((req, res) => {
   const rel = decodeURIComponent(req.url.split("?")[0]);
-  const file = path.resolve(path.join(ROOT, rel === "/" ? "index.html" : rel));
+  // A folder URL serves its index.html, as GitHub Pages does (web/malls/...).
+  const file = path.resolve(path.join(ROOT, rel.endsWith("/") ? rel + "index.html" : rel));
   if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
     res.writeHead(404); return res.end("not found");
   }
@@ -904,6 +905,49 @@ async function auditEv(browser, errors) {
   await ctx.close();
 }
 
+// The mall pages and the "#c=" links they use to open the map on a carpark.
+async function auditPages(browser, errors) {
+  console.log("\n== mall pages + deep links ==");
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => errors.push("pages pageerror: " + e));
+  const base = LIVE ? "https://kcjj0203.github.io/carpark-sg/" : "http://127.0.0.1:" + PORT + "/";
+  await page.goto(base + "malls/");
+  const idx = await page.evaluate(() => ({
+    rows: document.querySelectorAll("tbody tr").length,
+    over: document.documentElement.scrollWidth > window.innerWidth,
+    vivo: [...document.querySelectorAll("tbody a")].map((a) => a.getAttribute("href")).find((h) => /vivocity-p3/.test(h)),
+  }));
+  check("the mall index lists every priced mall", idx.rows >= 30, idx.rows + " rows");
+  check("and fits a phone", !idx.over);
+  await page.goto(base + "malls/vivocity-p3/");
+  const vivo = await page.evaluate(() => ({
+    title: document.title,
+    desc: (document.querySelector('meta[name="description"]') || {}).content || "",
+    canonical: (document.querySelector('link[rel="canonical"]') || {}).href || "",
+    cells: [...document.querySelectorAll("td")].map((t) => t.textContent),
+    map: (document.querySelector("a.cta") || {}).href || "",
+  }));
+  check("a mall page has a real title and description", /VivoCity P3 parking rates/.test(vivo.title) && vivo.desc.length > 60, vivo.title);
+  check("and a canonical address", /\/malls\/vivocity-p3\/$/.test(vivo.canonical), vivo.canonical);
+  // Hand-computed from VivoCity's posted rates: weekday $1.60 first hour,
+  // then $0.80 per 30 min, so 2 hours is $3.20.
+  check("and the engine's prices, matching the map", vivo.cells.includes("$1.60") && vivo.cells.includes("$3.20"), vivo.cells.slice(0, 6).join(" "));
+  check("and links to that carpark on the map", /#c=lta%3A16$/.test(vivo.map), vivo.map);
+  await ctx.close();
+
+  // The map opens the carpark named in the address.
+  const { ctx: c2, page: p2 } = await open(browser, 1600, 1000, errors);
+  await p2.goto((LIVE ? "https://kcjj0203.github.io/carpark-sg/" : "http://127.0.0.1:" + PORT + "/") + "#c=lta%3A16");
+  await p2.reload();
+  await p2.waitForFunction(() => state.selected === "lta:16", null, { timeout: 15000 }).catch(() => {});
+  const deep = await p2.evaluate(() => ({ sel: state.selected, h: (document.querySelector(".detail h2") || {}).textContent }));
+  check("a #c= link opens that carpark's panel", deep.sel === "lta:16" && /Vivocity/i.test(deep.h || ""), JSON.stringify(deep));
+  await p2.evaluate(() => closeDetail());
+  check("and closing the panel clears the address", await p2.evaluate(() => location.hash === ""));
+  await c2.close();
+}
+
 async function auditPhone(browser, errors) {
   console.log("\n== phone 390x844 ==");
   const { ctx, page } = await open(browser, 390, 844, errors);
@@ -1190,6 +1234,7 @@ async function auditMalls(browser, errors) {
     await auditPriceChart(browser, errors);
     await auditFree(browser, errors);
     await auditEv(browser, errors);
+    await auditPages(browser, errors);
     await auditPhone(browser, errors);
     await auditTablet(browser, errors);
   } finally {
