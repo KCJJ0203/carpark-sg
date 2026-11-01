@@ -758,6 +758,77 @@ async function auditPriceChart(browser, errors) {
   await ctx.close();
 }
 
+// "Park free": the Free view, the free-till / free-from tags and the Sunday
+// chip. Toa Payoh is HDB, where most carparks are free 7am-10.30pm on Sundays
+// and public holidays and none are on a weekday morning.
+async function auditFree(browser, errors) {
+  console.log("\n== park free ==");
+  const { ctx, page } = await open(browser, 1600, 1000, errors);
+  // The empty notice box once drew as a stray "(" above the list, because a
+  // display rule beat its hidden attribute.
+  check("a hidden notice takes no space", await page.evaluate(() => {
+    const n = document.querySelector("#notice");
+    return !n.hidden || n.getBoundingClientRect().height === 0;
+  }));
+  await page.evaluate(() => goTo(1.3343, 103.8563, 16));
+  await page.waitForTimeout(700);
+
+  // Sunday 10am via the chip, the way a driver would get there.
+  await page.click("#whenLater");
+  await page.waitForTimeout(300);
+  const chip = await page.evaluate(() => {
+    const b = document.querySelector("#freeDays [data-date]");
+    return b ? { label: b.textContent, date: b.dataset.date } : null;
+  });
+  check("Later offers a Sunday chip", chip && /Sunday|PH/.test(chip.label), JSON.stringify(chip));
+  await page.evaluate(() => setStay({ start: sgDateAt(nextSunday(), 600) }));
+  await page.click("[data-sort='free']");
+  await page.waitForTimeout(800);
+  const sun = await page.evaluate(() => ({
+    rows: state.lastRows.length,
+    allFree: state.lastRows.every((r) => r.fee.total === 0),
+    tags: [...document.querySelectorAll(".row[data-id] .tag.free")].map((t) => t.textContent),
+    pins: state.markers.size,
+  }));
+  check("on a Sunday the Free view lists free carparks", sun.rows > 0 && sun.allFree, JSON.stringify(sun).slice(0, 160));
+  check("and says until when", sun.tags.some((t) => /Free till 10:30pm/i.test(t)), JSON.stringify(sun.tags.slice(0, 4)));
+  check("the map shows only the free ones", sun.pins === sun.rows, sun.pins + " pins, " + sun.rows + " rows");
+
+  // A weekday morning: nothing free, so the page has to say when it will be.
+  await page.evaluate(() => {
+    const d = sgParts(new Date()).date;
+    const dow = new Date(d + "T12:00:00Z").getUTCDay();
+    const tue = addDays(d, ((2 - dow) + 7) % 7 || 7);
+    setStay({ start: sgDateAt(tue, 600) });
+  });
+  await page.waitForTimeout(800);
+  const wk = await page.evaluate(() => ({
+    rows: state.lastRows.length,
+    allFree: state.lastRows.every((r) => r.fee.total === 0),
+    note: (document.querySelector("#list .note") || {}).textContent || "",
+    go: !!document.querySelector("#freeGo"),
+  }));
+  check("on a weekday morning it never lists a paid carpark as free", wk.allFree);
+  check("and with none free, says where it turns free soonest",
+    wk.rows > 0 || /Soonest|Nothing within/.test(wk.note), wk.note.slice(0, 120));
+  if (wk.go) {
+    await page.click("#freeGo");
+    await page.waitForTimeout(800);
+    const after = await page.evaluate(() => ({ rows: state.lastRows.length,
+      allFree: state.lastRows.every((r) => r.fee.total === 0) }));
+    check("tapping Arrive at that time lists it as free", after.rows > 0 && after.allFree, JSON.stringify(after));
+  }
+
+  // Back to Nearest: a weekday card that turns free later says so.
+  await page.click("[data-sort='near']");
+  await page.waitForTimeout(600);
+  const from = await page.evaluate(() =>
+    [...document.querySelectorAll(".row[data-id] .tag")].map((t) => t.textContent).filter((t) => /^Free/.test(t)));
+  check("a paid card that turns free later says from when", from.some((t) => /^Free from/.test(t)) || from.length === 0,
+    JSON.stringify(from.slice(0, 4)));
+  await ctx.close();
+}
+
 async function auditPhone(browser, errors) {
   console.log("\n== phone 390x844 ==");
   const { ctx, page } = await open(browser, 390, 844, errors);
@@ -1042,6 +1113,7 @@ async function auditMalls(browser, errors) {
     await auditWalk(browser, errors);
     await auditWhenPanel(browser, errors);
     await auditPriceChart(browser, errors);
+    await auditFree(browser, errors);
     await auditPhone(browser, errors);
     await auditTablet(browser, errors);
   } finally {
