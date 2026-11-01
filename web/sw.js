@@ -20,7 +20,7 @@
 // v9: motorcycles and lorries are priced where URA prices them, so the payload
 // carries three rate tables per carpark instead of one.
 // v10: rows carry an estimated walking time beside the distance.
-const VERSION = "v10";
+const VERSION = "v11";
 const TILES = "tiles-v1";
 const SHELL = [
   "./", "./index.html", "./carparks.min.json", "./holidays.json", "./patterns.json",
@@ -46,7 +46,7 @@ self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches.keys()
       .then((keys) => Promise.all(
-        keys.filter((k) => k !== VERSION && k !== TILES).map((k) => caches.delete(k))))
+        keys.filter((k) => /^(v\d+|tiles-v\d+)$/.test(k) && k !== VERSION && k !== TILES).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
