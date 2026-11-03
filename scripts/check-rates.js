@@ -92,6 +92,12 @@ const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 // instead of "everything changed" (exit 1, an alarm).
 async function open(page, url, landmark) {
   await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
+  // Right after the laptop boots, "networkidle" can fire before HDB has drawn
+  // the page body (26 Oct and 3 Nov both read ~200 characters, while a run
+  // minutes later read the full schedule). Give the landmark up to 30 s to
+  // appear before deciding the page is not the rate schedule.
+  await page.waitForFunction((l) => document.body.innerText.includes(l), landmark,
+    { timeout: 30000 }).catch(() => {});
   const seen = await page.evaluate(() => ({
     title: document.title,
     href: location.href,
